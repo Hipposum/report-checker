@@ -157,6 +157,7 @@ hr { border-color: rgba(255,255,255,0.07) !important; margin: 1rem 0 !important;
 .pill-pass    { background:rgba(245,158,11,.15); color:#fbbf24; }
 .pill-handled { background:rgba(16,185,129,.15); color:#34d399; }
 .pill-skipped { background:rgba(156,163,175,.15);color:#9ca3af; }
+.pill-intern  { background:rgba(251,191,36,.15); color:#fbbf24; }
 
 /* ── Info bar (period) ───────────────────────────────────────────────────── */
 .info-bar {
@@ -297,6 +298,67 @@ def update_history_record(record_id: str, status: str, comment: str, reviewer: s
             rec.update({"status": status, "reviewer_comment": comment, "reviewer": reviewer, "updated_at": now})
             break
     save_history(records)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  TEACHER INFO — Google Sheet (publicly shared, no auth needed)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_TEACHER_SHEET_ID  = "1ipNiGu1cjGfkhWEmsJ0NG4K4icyYyIDFvpwRFZdOklQ"
+_TEACHER_SHEET_GID = "1826758403"
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_teacher_info(creds_json_str: str = "") -> dict:
+    """
+    Returns dict: { "ФИО": {"is_intern": bool, "subject": str, "fired": bool} }
+    Uses gspread (service account) if credentials provided, else tries public CSV URL.
+    Cached for 1 hour.
+    """
+    import io
+
+    def _parse_rows(rows: list) -> dict:
+        result = {}
+        for row in rows:
+            name = str(row.get("ФИО", "")).strip()
+            if not name or name.lower() == "nan":
+                continue
+            result[name] = {
+                "is_intern": str(row.get("стажер", "")).strip().lower() == "стажер",
+                "subject":   str(row.get("Предмет", "")).strip(),
+                "fired":     str(row.get("Статус набора", "")).strip().lower() == "уволен",
+            }
+        return result
+
+    # — Via gspread (service account) ————————————————————————————————————————
+    if creds_json_str:
+        try:
+            gc = _gs_client(creds_json_str)
+            sh = gc.open_by_key(_TEACHER_SHEET_ID)
+            ws = sh.get_worksheet_by_id(int(_TEACHER_SHEET_GID))
+            return _parse_rows(ws.get_all_records())
+        except Exception:
+            pass  # fall through to public URL
+
+    # — Fallback: public CSV (works if sheet is shared "anyone with the link") —
+    url = (
+        f"https://docs.google.com/spreadsheets/d/{_TEACHER_SHEET_ID}"
+        f"/export?format=csv&gid={_TEACHER_SHEET_GID}"
+    )
+    try:
+        r = requests.get(url, timeout=15, allow_redirects=True)
+        r.raise_for_status()
+        df = pd.read_csv(io.StringIO(r.content.decode("utf-8", errors="replace")))
+        return _parse_rows(df.to_dict("records"))
+    except Exception:
+        return {}
+
+
+def intern_badge(teacher: str, teacher_info: dict) -> str:
+    """Return HTML pill badge if teacher is an intern, else empty string."""
+    info = teacher_info.get(teacher, {})
+    if info.get("is_intern"):
+        return '<span class="pill pill-intern">🎓 Стажёр</span>'
+    return ""
 
 
 def load_config() -> dict:
@@ -702,6 +764,17 @@ with _gear_col:
             creds_json = creds_file.read().decode() if creds_file else cfg.get("creds_json", None)
 
         st.divider()
+        st.markdown("**📋 Данные о преподавателях**")
+        _ti_count = len(_teacher_info)
+        if _ti_count:
+            st.caption(f"✅ Загружено: {_ti_count} преподавателей")
+        else:
+            st.caption("⚠️ Не загружено — нужен Service Account JSON выше")
+        if st.button("🔄 Обновить сейчас", key="refresh_teacher_info", use_container_width=True):
+            load_teacher_info.clear()
+            st.rerun()
+
+        st.divider()
         _is_cloud = not os.path.exists(CONFIG_FILE)
         if _is_cloud:
             st.caption("☁️ Настройки хранятся в Streamlit Secrets")
@@ -721,6 +794,9 @@ DATE_TO   = date_to_val.strftime("%Y-%m-%d")
 BASE_URL  = f"https://{subdomain}.t8s.ru/Api/V2"
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📥 Загрузить данные", "✉️ Сообщения", "📤 Отправить", "📚 История", "📊 Статистика"])
+
+# Load teacher info from Google Sheets (cached 1 h)
+_teacher_info = load_teacher_info(creds_json_str=creds_json or "")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -905,9 +981,10 @@ with tab1:
                 )
 
             df = pd.DataFrame([{
-                "Дата":           e["date"],
-                "Преподаватель":  e["teacher"],
-                "Ошибка":         e["error_description"],
+                "Дата":              e["date"],
+                "Преподаватель":     e["teacher"],
+                "Стажёр":           _teacher_info.get(e["teacher"], {}).get("is_intern", False),
+                "Ошибка":            e["error_description"],
                 "Занятий/пропусков": e["count"],
             } for e in sorted(errors, key=lambda x: (x["teacher"], x["date"]))])
 
@@ -1015,7 +1092,11 @@ with tab2:
                     hcol1, hcol2 = st.columns([3, 1])
                     with hcol1:
                         icon = "🟢" if is_selected else "⚪"
-                        st.markdown(f"**{icon} {teacher}**")
+                        _ibadge = intern_badge(teacher, _teacher_info)
+                        st.markdown(
+                            f"**{icon} {teacher}**&nbsp;&nbsp;{_ibadge}",
+                            unsafe_allow_html=True,
+                        )
                     with hcol2:
                         if is_selected:
                             st.markdown('<span class="pill pill-sent">✉️ Отправится</span>', unsafe_allow_html=True)
@@ -1486,6 +1567,40 @@ with tab4:
 
             with st.expander(header, expanded=(open_n > 0)):
 
+                # Per-period mini bulk bar
+                _period_ids        = {r["id"] for r in filtered}
+                _period_action_ids = {r["id"] for r in filtered if r["status"] in _actionable_statuses}
+                _period_close_ids  = {r["id"] for r in filtered if r["status"] in _closeable_statuses}
+                _pb1, _pb2, _pb3, _pb4, _pb5 = st.columns([1.2, 1.2, 1.4, 1.4, 4])
+                if _pb1.button("☑️ Все", key=f"psel_{pf}_{pt}", use_container_width=True):
+                    for rid in _period_ids:
+                        st.session_state[f"hsel_{rid}"] = True
+                    st.rerun()
+                if _pb2.button("⬜ Снять", key=f"pdes_{pf}_{pt}", use_container_width=True):
+                    for rid in _period_ids:
+                        st.session_state[f"hsel_{rid}"] = False
+                    st.rerun()
+                _p_sel_open   = sum(1 for rid in _period_action_ids if st.session_state.get(f"hsel_{rid}", False))
+                _p_sel_closed = sum(1 for rid in _period_close_ids  if st.session_state.get(f"hsel_{rid}", False))
+                if _p_sel_open > 0:
+                    if _pb3.button(f"✅ Обработано ({_p_sel_open})", key=f"ph_{pf}_{pt}",
+                                   use_container_width=True, type="primary"):
+                        for r in filtered:
+                            if st.session_state.get(f"hsel_{r['id']}", False) and r["status"] in _actionable_statuses:
+                                update_history_record(r["id"], "handled", r.get("reviewer_comment", ""), reviewer_name)
+                                st.session_state[f"hsel_{r['id']}"] = False
+                        st.rerun()
+                if _p_sel_closed > 0:
+                    if _pb4.button(f"↺ Переоткрыть ({_p_sel_closed})", key=f"pr_{pf}_{pt}",
+                                   use_container_width=True):
+                        for r in filtered:
+                            if st.session_state.get(f"hsel_{r['id']}", False) and r["status"] in _closeable_statuses:
+                                update_history_record(r["id"], "open", r.get("reviewer_comment", ""), reviewer_name)
+                                st.session_state[f"hsel_{r['id']}"] = False
+                        st.rerun()
+
+                st.divider()
+
                 for rec in sorted(filtered, key=lambda r: (r["teacher"], r["date"])):
                     s_label, s_color = _STATUS_META.get(rec["status"], ("❓", "#888"))
 
@@ -1503,7 +1618,11 @@ with tab4:
                                 d_str = datetime.strptime(rec["date"], "%Y-%m-%d").strftime("%d.%m.%Y")
                             except Exception:
                                 d_str = rec["date"]
-                            st.markdown(f"**{rec['teacher']}**")
+                            _ibadge = intern_badge(rec["teacher"], _teacher_info)
+                            st.markdown(
+                                f"**{rec['teacher']}**&nbsp;&nbsp;{_ibadge}",
+                                unsafe_allow_html=True,
+                            )
                             err_icon = "📋" if rec["error_type"] == "no_report" else "💬"
                             cnt_str = f" · {rec['count']} шт." if rec.get("count") else ""
                             st.caption(f"{err_icon} {rec['error_description']}{cnt_str}  ·  {d_str}")
