@@ -1,0 +1,16 @@
+# Секреты и ключи — никогда не коммитить!
+config.json
+.streamlit/secrets.toml
+
+# История — содержит персональные данные
+history.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+
+# OS
+.DS_Store
+Thumbs.db

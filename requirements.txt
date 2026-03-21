@@ -1,0 +1,6 @@
+streamlit>=1.35
+requests
+pandas
+gspread
+google-auth
+google-auth-oauthlib
