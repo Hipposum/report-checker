@@ -22,26 +22,153 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-/* Скрыть кнопку открытия сайдбара */
+/* ── Hide sidebar ───────────────────────────────────────────────────────── */
 [data-testid="collapsedControl"] { display: none; }
 [data-testid="stSidebar"]        { display: none; }
 
-/* Убрать лишние отступы сверху */
-.block-container { padding-top: 1.2rem !important; }
-
-/* Шапка приложения */
-.app-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 0.5rem;
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+.block-container {
+    padding-top: 1.4rem !important;
+    padding-left: 2.5rem !important;
+    padding-right: 2.5rem !important;
+    max-width: 1440px !important;
 }
 
-/* Teacher card */
-.teacher-card { border-radius: 10px; padding: 4px 0; }
+/* ── Typography ─────────────────────────────────────────────────────────── */
+h1, h2, h3 { letter-spacing: -0.3px; }
+h2 { font-size: 1.6rem !important; font-weight: 700 !important; }
 
-/* Метрики компактнее */
-[data-testid="stMetric"] { background: #1e1e2e; border-radius: 10px; padding: 12px 16px; }
+/* ── Tabs ────────────────────────────────────────────────────────────────── */
+[data-testid="stTabs"] [role="tablist"] {
+    gap: 4px;
+    border-bottom: 2px solid rgba(255,255,255,0.07);
+    padding-bottom: 0;
+}
+[data-testid="stTabs"] [role="tab"] {
+    font-size: 0.88rem;
+    font-weight: 500;
+    padding: 8px 18px;
+    border-radius: 8px 8px 0 0;
+    color: rgba(255,255,255,0.55);
+    transition: color 0.2s, background 0.2s;
+}
+[data-testid="stTabs"] [role="tab"]:hover {
+    color: rgba(255,255,255,0.85);
+    background: rgba(255,255,255,0.04);
+}
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] {
+    font-weight: 700;
+    color: #a78bfa;
+}
+
+/* ── Metric cards ────────────────────────────────────────────────────────── */
+[data-testid="stMetric"] {
+    background: linear-gradient(135deg, #1e1e2e 0%, #252540 100%);
+    border-radius: 14px;
+    padding: 18px 22px;
+    border: 1px solid rgba(255,255,255,0.07);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+[data-testid="stMetric"]:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+}
+[data-testid="stMetricLabel"] {
+    font-size: 0.75rem !important;
+    opacity: 0.6;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    font-weight: 600;
+}
+[data-testid="stMetricValue"] {
+    font-size: 2.2rem !important;
+    font-weight: 800 !important;
+    color: #e2e8f0;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+button[kind="primary"], [data-testid="stButton"] > button[kind="primary"] {
+    background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%) !important;
+    border: none !important;
+    border-radius: 10px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.2px;
+    box-shadow: 0 4px 14px rgba(124,58,237,0.35) !important;
+    transition: all 0.2s !important;
+}
+button[kind="primary"]:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 6px 20px rgba(124,58,237,0.5) !important;
+}
+button[kind="secondary"], [data-testid="stButton"] > button[kind="secondary"] {
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    border: 1px solid rgba(255,255,255,0.15) !important;
+}
+
+/* ── Cards / containers ──────────────────────────────────────────────────── */
+[data-testid="stVerticalBlockBorderWrapper"] > div {
+    border-radius: 14px !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    background: rgba(255,255,255,0.02) !important;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+}
+
+/* ── Expanders ───────────────────────────────────────────────────────────── */
+[data-testid="stExpander"] {
+    border-radius: 10px !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+}
+
+/* ── Info / success / error boxes ───────────────────────────────────────── */
+[data-testid="stAlert"] {
+    border-radius: 10px !important;
+    border-left-width: 4px !important;
+}
+
+/* ── DataFrames ──────────────────────────────────────────────────────────── */
+[data-testid="stDataFrame"] {
+    border-radius: 12px !important;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.07) !important;
+}
+
+/* ── Divider ─────────────────────────────────────────────────────────────── */
+hr { border-color: rgba(255,255,255,0.07) !important; margin: 1rem 0 !important; }
+
+/* ── Inputs ──────────────────────────────────────────────────────────────── */
+[data-testid="stTextInput"] > div > div,
+[data-testid="stDateInput"]  > div > div {
+    border-radius: 8px !important;
+}
+
+/* ── Status pills ────────────────────────────────────────────────────────── */
+.pill {
+    display: inline-block;
+    padding: 3px 11px;
+    border-radius: 20px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    line-height: 1.6;
+}
+.pill-open    { background:rgba(239,68,68,.15);  color:#f87171; }
+.pill-sent    { background:rgba(59,130,246,.15); color:#60a5fa; }
+.pill-pass    { background:rgba(245,158,11,.15); color:#fbbf24; }
+.pill-handled { background:rgba(16,185,129,.15); color:#34d399; }
+.pill-skipped { background:rgba(156,163,175,.15);color:#9ca3af; }
+
+/* ── Info bar (period) ───────────────────────────────────────────────────── */
+.info-bar {
+    background: linear-gradient(90deg,rgba(124,58,237,.12),rgba(91,33,182,.06));
+    border: 1px solid rgba(124,58,237,.25);
+    border-radius: 10px;
+    padding: 10px 18px;
+    font-size: 0.88rem;
+    color: rgba(255,255,255,0.75);
+    margin-bottom: 0.8rem;
+}
+.info-bar b { color: #c4b5fd; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -593,7 +720,11 @@ with tab1:
     with col_btn:
         load_btn = st.button("🔄 Загрузить данные", type="primary", use_container_width=True)
     with col_hint:
-        st.caption(f"Период: **{fmt_date(DATE_FROM)} — {fmt_date(DATE_TO)}** · HolliHop: **{subdomain}.t8s.ru**")
+        st.markdown(
+            f'<div class="info-bar">Период:&nbsp;<b>{fmt_date(DATE_FROM)} — {fmt_date(DATE_TO)}</b>'
+            f'&nbsp;&nbsp;·&nbsp;&nbsp;HolliHop:&nbsp;<b>{subdomain}.t8s.ru</b></div>',
+            unsafe_allow_html=True,
+        )
 
     if load_btn:
         if not api_key:
@@ -875,9 +1006,9 @@ with tab2:
                         st.markdown(f"**{icon} {teacher}**")
                     with hcol2:
                         if is_selected:
-                            st.caption("✉️ Отправится")
+                            st.markdown('<span class="pill pill-sent">✉️ Отправится</span>', unsafe_allow_html=True)
                         else:
-                            st.caption("⛔ Пропущен")
+                            st.markdown('<span class="pill pill-skipped">⛔ Пропущен</span>', unsafe_allow_html=True)
 
                     st.caption(f"📭 {count} занятий без отчёта · {dates_str}")
 
@@ -1184,6 +1315,13 @@ _STATUS_META = {
     "handled":      ("✅ Обработано",           "#3aa84b"),
     "skipped":      ("⚪ Пропущено",           "#888888"),
 }
+_STATUS_PILL = {
+    "open":         "pill pill-open",
+    "message_sent": "pill pill-sent",
+    "pass_set":     "pill pill-pass",
+    "handled":      "pill pill-handled",
+    "skipped":      "pill pill-skipped",
+}
 _STATUS_FILTER_MAP = {
     "🔴 Открыто":             "open",
     "💬 Сообщение отправлено": "message_sent",
@@ -1307,8 +1445,9 @@ with tab4:
                             st.caption(f"{err_icon} {rec['error_description']}{cnt_str}  ·  {d_str}")
 
                         with r_c2:
+                            pill_cls = _STATUS_PILL.get(rec["status"], "pill")
                             st.markdown(
-                                f"<span style='color:{s_color};font-weight:600'>{s_label}</span>",
+                                f'<span class="{pill_cls}">{s_label}</span>',
                                 unsafe_allow_html=True,
                             )
                             upd = rec.get("updated_at", "")
@@ -1469,11 +1608,14 @@ with tab5:
             teacher_rows = []
             for teacher in sorted(set(r["teacher"] for r in sr)):
                 t = [r for r in sr if r["teacher"] == teacher]
+                done  = sum(1 for r in t if _is_processed(r))
+                total = len(t)
                 teacher_rows.append({
-                    "Преподаватель":  teacher,
-                    "✅ Обработано":   sum(1 for r in t if _is_processed(r)),
+                    "Преподаватель":   teacher,
+                    "✅ Обработано":    done,
                     "🔴 Не обработано": sum(1 for r in t if _is_open(r)),
-                    "Всего":          len(t),
+                    "Всего":           total,
+                    "% выполнено":     round(done / total * 100) if total else 0,
                 })
 
             df_teachers = pd.DataFrame(teacher_rows)
@@ -1487,6 +1629,13 @@ with tab5:
                     "✅ Обработано":    st.column_config.NumberColumn(width="small"),
                     "🔴 Не обработано": st.column_config.NumberColumn(width="small"),
                     "Всего":            st.column_config.NumberColumn(width="small"),
+                    "% выполнено":      st.column_config.ProgressColumn(
+                        "% выполнено",
+                        help="Доля обработанных ошибок",
+                        format="%d%%",
+                        min_value=0,
+                        max_value=100,
+                    ),
                 },
             )
 
@@ -1517,12 +1666,13 @@ with tab5:
             period_rows = []
             for pf, pt in all_stat_periods:
                 p = [r for r in stat_records if r["period_from"] == pf and r["period_to"] == pt]
+                p_done = sum(1 for r in p if _is_processed(r))
                 period_rows.append({
                     "Период":           f"{fmt_date(pf)} — {fmt_date(pt)}",
-                    "✅ Обработано":    sum(1 for r in p if _is_processed(r)),
+                    "✅ Обработано":    p_done,
                     "🔴 Не обработано": sum(1 for r in p if _is_open(r)),
                     "Всего":            len(p),
-                    "% обработано":     f"{round(sum(1 for r in p if _is_processed(r)) / len(p) * 100)}%" if p else "—",
+                    "% обработано":     round(p_done / len(p) * 100) if p else 0,
                 })
 
             st.dataframe(
@@ -1534,6 +1684,11 @@ with tab5:
                     "✅ Обработано":    st.column_config.NumberColumn(width="small"),
                     "🔴 Не обработано": st.column_config.NumberColumn(width="small"),
                     "Всего":            st.column_config.NumberColumn(width="small"),
-                    "% обработано":     st.column_config.TextColumn(width="small"),
+                    "% обработано":     st.column_config.ProgressColumn(
+                        "% обработано",
+                        format="%d%%",
+                        min_value=0,
+                        max_value=100,
+                    ),
                 },
             )
