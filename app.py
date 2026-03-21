@@ -527,20 +527,17 @@ def update_sheet_statuses(sheet_id, sheet_name, sent_teachers, date_from, date_t
 #  HEADER — title + dates + settings popover
 # ─────────────────────────────────────────────────────────────────────────────
 
-_title_col, _d1_col, _d2_col, _gear_col = st.columns([4, 1.2, 1.2, 0.5])
+_title_col, _dates_col, _gear_col = st.columns([4, 2.5, 0.4])
 
 with _title_col:
     st.markdown("## 📋 Проверка отчётов HolliHop")
 
-with _d1_col:
-    date_from_val = st.date_input("С", value=date.today() - timedelta(days=7), label_visibility="collapsed",
-                                  help="Начало периода")
-    st.caption(f"С: **{date_from_val.strftime('%d.%m.%Y')}**")
-
-with _d2_col:
-    date_to_val = st.date_input("По", value=date.today(), label_visibility="collapsed",
-                                help="Конец периода")
-    st.caption(f"По: **{date_to_val.strftime('%d.%m.%Y')}**")
+with _dates_col:
+    _dc1, _dc2 = st.columns(2)
+    with _dc1:
+        date_from_val = st.date_input("С", value=date.today() - timedelta(days=7))
+    with _dc2:
+        date_to_val = st.date_input("По", value=date.today())
 
 with _gear_col:
     with st.popover("⚙️", use_container_width=True):
@@ -1409,17 +1406,43 @@ with tab5:
             set((r["period_from"], r["period_to"]) for r in stat_records),
             key=lambda x: x[0], reverse=True,
         )
-        period_labels = ["Все периоды"] + [
-            f"{fmt_date(pf)} — {fmt_date(pt)}" for pf, pt in all_stat_periods
-        ]
-        sel_period = st.selectbox("📅 Период", period_labels, key="stat_period_sel")
 
-        if sel_period == "Все периоды":
-            sr = stat_records
+        _fmode_col, _fp1_col, _fp2_col = st.columns([1.5, 1.5, 1.5])
+        with _fmode_col:
+            filter_mode = st.radio(
+                "Режим фильтра",
+                ["Готовые периоды", "Произвольный диапазон"],
+                horizontal=True,
+                key="stat_filter_mode",
+                label_visibility="collapsed",
+            )
+
+        if filter_mode == "Готовые периоды":
+            period_labels = ["Все периоды"] + [
+                f"{fmt_date(pf)} — {fmt_date(pt)}" for pf, pt in all_stat_periods
+            ]
+            with _fp1_col:
+                sel_period = st.selectbox("Выберите период", period_labels, key="stat_period_sel",
+                                          label_visibility="collapsed")
+            if sel_period == "Все периоды":
+                sr = stat_records
+            else:
+                pidx = period_labels.index(sel_period) - 1
+                pf0, pt0 = all_stat_periods[pidx]
+                sr = [r for r in stat_records if r["period_from"] == pf0 and r["period_to"] == pt0]
         else:
-            pidx = period_labels.index(sel_period) - 1
-            pf0, pt0 = all_stat_periods[pidx]
-            sr = [r for r in stat_records if r["period_from"] == pf0 and r["period_to"] == pt0]
+            # Custom date range
+            _hist_dates = sorted(r["date"] for r in stat_records)
+            _min_d = datetime.strptime(_hist_dates[0], "%Y-%m-%d").date() if _hist_dates else date.today() - timedelta(days=30)
+            _max_d = datetime.strptime(_hist_dates[-1], "%Y-%m-%d").date() if _hist_dates else date.today()
+            with _fp1_col:
+                custom_from = st.date_input("С", value=_min_d, key="stat_custom_from")
+            with _fp2_col:
+                custom_to   = st.date_input("По", value=_max_d, key="stat_custom_to")
+            _cf = custom_from.strftime("%Y-%m-%d")
+            _ct = custom_to.strftime("%Y-%m-%d")
+            sr = [r for r in stat_records if _cf <= r["date"] <= _ct]
+            sel_period = "custom"  # used later to control dynamics block
 
         # ── Top metrics ───────────────────────────────────────────────────────
         total_rec   = len(sr)
@@ -1487,7 +1510,7 @@ with tab5:
             )
 
         # ── Per-period dynamics (shown when "All periods" selected) ───────────
-        if sel_period == "Все периоды" and len(all_stat_periods) > 1:
+        if sel_period in ("Все периоды", "custom") and len(all_stat_periods) > 1:
             st.divider()
             st.markdown("**📅 Динамика по периодам**")
 
