@@ -329,33 +329,45 @@ def load_teacher_info(creds_json_str: str = "") -> tuple:
         return result
 
     # — Via gspread (service account) ————————————————————————————————————————
-    # Try st.secrets["gcp_service_account"] (Streamlit Cloud native format) first
-    _creds_to_try = creds_json_str
-    if not _creds_to_try:
-        try:
-            _creds_to_try = json.dumps(dict(st.secrets["gcp_service_account"]))
-        except Exception:
-            pass
+    import gspread as _gspread
+    from google.oauth2.service_account import Credentials as _Creds
 
-    if _creds_to_try:
-        try:
-            gc = _gs_client(_creds_to_try)
-            sh = gc.open_by_key(_TEACHER_SHEET_ID)
-            # Find worksheet by gid (compatible with all gspread versions)
-            target_gid = int(_TEACHER_SHEET_GID)
-            ws = None
-            for w in sh.worksheets():
-                if w.id == target_gid:
-                    ws = w
-                    break
-            if ws is None:
-                return {}, f"❌ Лист с gid={target_gid} не найден в таблице"
+    _SA_SCOPES = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+
+    def _open_sheet(sa_info: dict):
+        creds = _Creds.from_service_account_info(sa_info, scopes=_SA_SCOPES)
+        gc    = _gspread.authorize(creds)
+        sh    = gc.open_by_key(_TEACHER_SHEET_ID)
+        gid   = int(_TEACHER_SHEET_GID)
+        for w in sh.worksheets():
+            if w.id == gid:
+                return w
+        return None
+
+    pub_err = ""
+
+    # 1) st.secrets["gcp_service_account"] — native TOML dict (best on cloud)
+    try:
+        ws = _open_sheet(dict(st.secrets["gcp_service_account"]))
+        if ws:
             data = _parse_rows(ws.get_all_records())
-            return data, f"✅ Загружено через Service Account: {len(data)} преп."
+            return data, f"✅ Загружено (Secrets): {len(data)} преп."
+    except Exception as e:
+        pub_err = f"secrets: {e}"
+
+    # 2) creds_json_str — JSON string from config/uploader
+    if creds_json_str:
+        try:
+            sa_info = json.loads(creds_json_str)
+            ws = _open_sheet(sa_info)
+            if ws:
+                data = _parse_rows(ws.get_all_records())
+                return data, f"✅ Загружено (JSON): {len(data)} преп."
         except Exception as e:
-            pub_err = str(e)
-    else:
-        pub_err = ""
+            pub_err += f" | json: {e}"
 
     # — Fallback: public CSV ——————————————————————————————————————————————————
     url = (
