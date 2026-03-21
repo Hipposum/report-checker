@@ -225,8 +225,11 @@ def upsert_history(all_errors: list, period_from: str, period_to: str, reviewer:
     other = [r for r in records if not (r["period_from"] == period_from and r["period_to"] == period_to)]
 
     updated = []
+    current_keys = set()
+
     for e in all_errors:
         key = (e["teacher"], e["date"], e["error_type"])
+        current_keys.add(key)
         if key in existing:
             rec = existing[key].copy()
             rec.update({"count": e["count"], "error_description": e["error_description"], "updated_at": now})
@@ -248,6 +251,14 @@ def upsert_history(all_errors: list, period_from: str, period_to: str, reviewer:
                 "updated_at":        now,
             }
         updated.append(rec)
+
+    # Records that existed before but are no longer errors = teacher fixed it themselves
+    for key, rec in existing.items():
+        if key not in current_keys:
+            rec = rec.copy()
+            if rec["status"] == "open":
+                rec.update({"status": "resolved", "updated_at": now})
+            updated.append(rec)
 
     save_history(other + updated)
 
@@ -667,6 +678,7 @@ with _dates_col:
         date_to_val = st.date_input("По", value=date.today())
 
 with _gear_col:
+    st.markdown('<div style="height:1.75rem"></div>', unsafe_allow_html=True)
     with st.popover("⚙️", use_container_width=True):
         st.markdown("### ⚙️ Настройки")
 
@@ -1309,11 +1321,12 @@ with tab3:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _STATUS_META = {
-    "open":         ("🔴 Открыто",             "#e05252"),
-    "message_sent": ("💬 Сообщение отправлено", "#4a90d9"),
-    "pass_set":     ("🚫 Пропуск выставлен",   "#d97f2e"),
-    "handled":      ("✅ Обработано",           "#3aa84b"),
-    "skipped":      ("⚪ Пропущено",           "#888888"),
+    "open":         ("🔴 Открыто",                    "#e05252"),
+    "message_sent": ("💬 Сообщение отправлено",        "#4a90d9"),
+    "pass_set":     ("🚫 Пропуск выставлен",          "#d97f2e"),
+    "handled":      ("✅ Обработано",                  "#3aa84b"),
+    "skipped":      ("⚪ Пропущено",                  "#888888"),
+    "resolved":     ("🟢 Исправлено самостоятельно",   "#22c55e"),
 }
 _STATUS_PILL = {
     "open":         "pill pill-open",
@@ -1321,13 +1334,15 @@ _STATUS_PILL = {
     "pass_set":     "pill pill-pass",
     "handled":      "pill pill-handled",
     "skipped":      "pill pill-skipped",
+    "resolved":     "pill pill-handled",
 }
 _STATUS_FILTER_MAP = {
-    "🔴 Открыто":             "open",
-    "💬 Сообщение отправлено": "message_sent",
-    "🚫 Пропуск выставлен":   "pass_set",
-    "✅ Обработано":           "handled",
-    "⚪ Пропущено":           "skipped",
+    "🔴 Открыто":                   "open",
+    "💬 Сообщение отправлено":       "message_sent",
+    "🚫 Пропуск выставлен":         "pass_set",
+    "✅ Обработано":                 "handled",
+    "⚪ Пропущено":                 "skipped",
+    "🟢 Исправлено самостоятельно":  "resolved",
 }
 
 with tab4:
@@ -1352,6 +1367,7 @@ with tab4:
                 key="hf_error",
             )
         with fc4:
+            st.markdown('<div style="height:1.75rem"></div>', unsafe_allow_html=True)
             if st.button("🔄 Обновить", use_container_width=True, key="hist_refresh"):
                 st.rerun()
 
@@ -1359,6 +1375,45 @@ with tab4:
         total_open = sum(1 for r in history_records if r["status"] == "open")
         if total_open:
             st.warning(f"⚠️ Открытых записей: **{total_open}** — требуют внимания")
+
+        # ── Массовые действия ─────────────────────────────────────────────────
+        _actionable_statuses = ("open", "message_sent", "pass_set")
+        _actionable_ids = {r["id"] for r in history_records if r["status"] in _actionable_statuses}
+        _n_sel = sum(
+            1 for rid in _actionable_ids
+            if st.session_state.get(f"hsel_{rid}", False)
+        )
+
+        with st.container():
+            _ba1, _ba2, _ba3, _ba4, _ba5 = st.columns([1.5, 1.5, 1.5, 1.5, 3])
+            if _ba1.button("☑️ Выбрать все", use_container_width=True, key="hist_sel_all"):
+                for rid in _actionable_ids:
+                    st.session_state[f"hsel_{rid}"] = True
+                st.rerun()
+            if _ba2.button("⬜ Снять всё", use_container_width=True, key="hist_desel_all"):
+                for rid in _actionable_ids:
+                    st.session_state[f"hsel_{rid}"] = False
+                st.rerun()
+            if _n_sel > 0:
+                if _ba3.button(f"✅ Обработано ({_n_sel})", use_container_width=True, key="hist_bulk_handled",
+                               type="primary"):
+                    for r in history_records:
+                        if st.session_state.get(f"hsel_{r['id']}", False) and r["status"] in _actionable_statuses:
+                            update_history_record(r["id"], "handled", r.get("reviewer_comment", ""), reviewer_name)
+                            st.session_state[f"hsel_{r['id']}"] = False
+                    st.rerun()
+                if _ba4.button(f"⚪ Пропустить ({_n_sel})", use_container_width=True, key="hist_bulk_skip"):
+                    for r in history_records:
+                        if st.session_state.get(f"hsel_{r['id']}", False) and r["status"] in _actionable_statuses:
+                            update_history_record(r["id"], "skipped", r.get("reviewer_comment", ""), reviewer_name)
+                            st.session_state[f"hsel_{r['id']}"] = False
+                    st.rerun()
+            else:
+                _ba3.empty()
+                _ba4.empty()
+            if _n_sel > 0:
+                _ba5.markdown(f"<span style='line-height:2.4rem;color:#a78bfa;font-weight:600'>Выбрано: {_n_sel}</span>",
+                              unsafe_allow_html=True)
 
         st.divider()
 
@@ -1432,7 +1487,14 @@ with tab4:
                     s_label, s_color = _STATUS_META.get(rec["status"], ("❓", "#888"))
 
                     with st.container(border=True):
-                        r_c1, r_c2, r_c3 = st.columns([3, 2, 3])
+                        r_c0, r_c1, r_c2, r_c3 = st.columns([0.25, 3, 2, 3])
+                        with r_c0:
+                            if rec["status"] in _actionable_statuses:
+                                st.checkbox(
+                                    "sel",
+                                    key=f"hsel_{rec['id']}",
+                                    label_visibility="collapsed",
+                                )
 
                         with r_c1:
                             try:
@@ -1527,7 +1589,7 @@ with tab4:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _is_processed(r):
-    return r["status"] in ("handled", "pass_set", "message_sent")
+    return r["status"] in ("handled", "pass_set", "message_sent", "resolved")
 
 def _is_open(r):
     return r["status"] == "open"
@@ -1646,11 +1708,12 @@ with tab5:
         with col_sum:
             st.markdown("**Сводка по статусам**")
             summary_rows = [
-                {"Статус": "✅ Обработано",          "Кол-во": sum(1 for r in sr if r["status"] == "handled")},
-                {"Статус": "💬 Сообщение отправлено", "Кол-во": sum(1 for r in sr if r["status"] == "message_sent")},
-                {"Статус": "🚫 Пропуск выставлен",   "Кол-во": sum(1 for r in sr if r["status"] == "pass_set")},
-                {"Статус": "🔴 Открыто",             "Кол-во": sum(1 for r in sr if r["status"] == "open")},
-                {"Статус": "⚪ Пропущено",           "Кол-во": sum(1 for r in sr if r["status"] == "skipped")},
+                {"Статус": "✅ Обработано",                 "Кол-во": sum(1 for r in sr if r["status"] == "handled")},
+                {"Статус": "🟢 Исправлено самостоятельно",  "Кол-во": sum(1 for r in sr if r["status"] == "resolved")},
+                {"Статус": "💬 Сообщение отправлено",        "Кол-во": sum(1 for r in sr if r["status"] == "message_sent")},
+                {"Статус": "🚫 Пропуск выставлен",          "Кол-во": sum(1 for r in sr if r["status"] == "pass_set")},
+                {"Статус": "🔴 Открыто",                    "Кол-во": sum(1 for r in sr if r["status"] == "open")},
+                {"Статус": "⚪ Пропущено",                  "Кол-во": sum(1 for r in sr if r["status"] == "skipped")},
             ]
             st.dataframe(
                 pd.DataFrame(summary_rows),
