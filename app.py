@@ -575,7 +575,7 @@ DATE_FROM = date_from_val.strftime("%Y-%m-%d")
 DATE_TO   = date_to_val.strftime("%Y-%m-%d")
 BASE_URL  = f"https://{subdomain}.t8s.ru/Api/V2"
 
-tab1, tab2, tab3, tab4 = st.tabs(["📥 Загрузить данные", "✉️ Сообщения", "📤 Отправить", "📚 История"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📥 Загрузить данные", "✉️ Сообщения", "📤 Отправить", "📚 История", "📊 Статистика"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1374,4 +1374,134 @@ with tab4:
                 "history.csv",
                 "text/csv",
                 use_container_width=False,
+            )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  TAB 5 — СТАТИСТИКА
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _is_processed(r):
+    return r["status"] in ("handled", "pass_set", "message_sent")
+
+def _is_open(r):
+    return r["status"] == "open"
+
+with tab5:
+    st.subheader("📊 Статистика по проверкам")
+
+    stat_records = load_history()
+
+    if not stat_records:
+        st.info("История пуста — запустите проверку для получения статистики.")
+    else:
+        # ── Period filter ─────────────────────────────────────────────────────
+        all_stat_periods = sorted(
+            set((r["period_from"], r["period_to"]) for r in stat_records),
+            key=lambda x: x[0], reverse=True,
+        )
+        period_labels = ["Все периоды"] + [
+            f"{fmt_date(pf)} — {fmt_date(pt)}" for pf, pt in all_stat_periods
+        ]
+        sel_period = st.selectbox("📅 Период", period_labels, key="stat_period_sel")
+
+        if sel_period == "Все периоды":
+            sr = stat_records
+        else:
+            pidx = period_labels.index(sel_period) - 1
+            pf0, pt0 = all_stat_periods[pidx]
+            sr = [r for r in stat_records if r["period_from"] == pf0 and r["period_to"] == pt0]
+
+        # ── Top metrics ───────────────────────────────────────────────────────
+        total_rec   = len(sr)
+        processed_n = sum(1 for r in sr if _is_processed(r))
+        open_n      = sum(1 for r in sr if _is_open(r))
+        skipped_n   = sum(1 for r in sr if r["status"] == "skipped")
+        teachers_n  = len(set(r["teacher"] for r in sr))
+
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("📋 Всего ошибок",      total_rec)
+        m2.metric("✅ Обработано",         processed_n)
+        m3.metric("🔴 Не обработано",      open_n)
+        m4.metric("⚪ Пропущено",          skipped_n)
+        m5.metric("👩‍🏫 Преподавателей",    teachers_n)
+
+        st.divider()
+
+        # ── Two-column layout: teacher table + summary ────────────────────────
+        col_tbl, col_sum = st.columns([3, 1])
+
+        with col_tbl:
+            st.markdown("**По преподавателям**")
+
+            teacher_rows = []
+            for teacher in sorted(set(r["teacher"] for r in sr)):
+                t = [r for r in sr if r["teacher"] == teacher]
+                teacher_rows.append({
+                    "Преподаватель":  teacher,
+                    "✅ Обработано":   sum(1 for r in t if _is_processed(r)),
+                    "🔴 Не обработано": sum(1 for r in t if _is_open(r)),
+                    "Всего":          len(t),
+                })
+
+            df_teachers = pd.DataFrame(teacher_rows)
+
+            st.dataframe(
+                df_teachers,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Преподаватель":    st.column_config.TextColumn(width="large"),
+                    "✅ Обработано":    st.column_config.NumberColumn(width="small"),
+                    "🔴 Не обработано": st.column_config.NumberColumn(width="small"),
+                    "Всего":            st.column_config.NumberColumn(width="small"),
+                },
+            )
+
+            # Export
+            csv_stat = df_teachers.to_csv(index=False).encode("utf-8-sig")
+            st.download_button("⬇️ Скачать CSV", csv_stat, "stats.csv", "text/csv")
+
+        with col_sum:
+            st.markdown("**Сводка по статусам**")
+            summary_rows = [
+                {"Статус": "✅ Обработано",          "Кол-во": sum(1 for r in sr if r["status"] == "handled")},
+                {"Статус": "💬 Сообщение отправлено", "Кол-во": sum(1 for r in sr if r["status"] == "message_sent")},
+                {"Статус": "🚫 Пропуск выставлен",   "Кол-во": sum(1 for r in sr if r["status"] == "pass_set")},
+                {"Статус": "🔴 Открыто",             "Кол-во": sum(1 for r in sr if r["status"] == "open")},
+                {"Статус": "⚪ Пропущено",           "Кол-во": sum(1 for r in sr if r["status"] == "skipped")},
+            ]
+            st.dataframe(
+                pd.DataFrame(summary_rows),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        # ── Per-period dynamics (shown when "All periods" selected) ───────────
+        if sel_period == "Все периоды" and len(all_stat_periods) > 1:
+            st.divider()
+            st.markdown("**📅 Динамика по периодам**")
+
+            period_rows = []
+            for pf, pt in all_stat_periods:
+                p = [r for r in stat_records if r["period_from"] == pf and r["period_to"] == pt]
+                period_rows.append({
+                    "Период":           f"{fmt_date(pf)} — {fmt_date(pt)}",
+                    "✅ Обработано":    sum(1 for r in p if _is_processed(r)),
+                    "🔴 Не обработано": sum(1 for r in p if _is_open(r)),
+                    "Всего":            len(p),
+                    "% обработано":     f"{round(sum(1 for r in p if _is_processed(r)) / len(p) * 100)}%" if p else "—",
+                })
+
+            st.dataframe(
+                pd.DataFrame(period_rows),
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Период":           st.column_config.TextColumn(width="medium"),
+                    "✅ Обработано":    st.column_config.NumberColumn(width="small"),
+                    "🔴 Не обработано": st.column_config.NumberColumn(width="small"),
+                    "Всего":            st.column_config.NumberColumn(width="small"),
+                    "% обработано":     st.column_config.TextColumn(width="small"),
+                },
             )
