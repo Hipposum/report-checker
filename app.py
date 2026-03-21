@@ -329,9 +329,17 @@ def load_teacher_info(creds_json_str: str = "") -> tuple:
         return result
 
     # — Via gspread (service account) ————————————————————————————————————————
-    if creds_json_str:
+    # Try st.secrets["gcp_service_account"] (Streamlit Cloud native format) first
+    _creds_to_try = creds_json_str
+    if not _creds_to_try:
         try:
-            gc = _gs_client(creds_json_str)
+            _creds_to_try = json.dumps(dict(st.secrets["gcp_service_account"]))
+        except Exception:
+            pass
+
+    if _creds_to_try:
+        try:
+            gc = _gs_client(_creds_to_try)
             sh = gc.open_by_key(_TEACHER_SHEET_ID)
             # Find worksheet by gid (compatible with all gspread versions)
             target_gid = int(_TEACHER_SHEET_GID)
@@ -345,9 +353,7 @@ def load_teacher_info(creds_json_str: str = "") -> tuple:
             data = _parse_rows(ws.get_all_records())
             return data, f"✅ Загружено через Service Account: {len(data)} преп."
         except Exception as e:
-            err = str(e)
-            # fall through to public URL, but keep error for reporting
-            pub_err = err
+            pub_err = str(e)
     else:
         pub_err = ""
 
