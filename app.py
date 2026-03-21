@@ -862,6 +862,9 @@ BASE_URL  = f"https://{subdomain}.t8s.ru/Api/V2"
 tab4, tab5, tab1, tab2, tab3 = st.tabs(["📚 История", "📊 Статистика", "📥 Загрузить данные", "✉️ Сообщения", "📤 Отправить"])
 
 
+# Load history once per render — reused across Tab 4 and Tab 5
+_all_history: list = load_history()
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  TAB 1 — LOAD & ANALYSE
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1492,7 +1495,7 @@ _STATUS_FILTER_MAP = {
 with tab4:
     st.subheader("📚 История проверок")
 
-    history_records = load_history()
+    history_records = _all_history
 
     if not history_records:
         st.info("История пуста — запустите проверку, чтобы записи появились здесь.")
@@ -1602,14 +1605,15 @@ with tab4:
         }
 
         for (pf, pt), recs in sorted_periods:
-            # Apply filters
-            filtered = recs
-            if f_teacher != "Все":
-                filtered = [r for r in filtered if r["teacher"] == f_teacher]
-            if f_status != "Все":
-                filtered = [r for r in filtered if r["status"] == _STATUS_FILTER_MAP.get(f_status)]
-            if f_error != "Все":
-                filtered = [r for r in filtered if r["error_type"] == _ERR_FILTER_MAP.get(f_error)]
+            # Apply all filters in a single pass
+            _f_status_val  = _STATUS_FILTER_MAP.get(f_status)
+            _f_error_val   = _ERR_FILTER_MAP.get(f_error)
+            filtered = [
+                r for r in recs
+                if (f_teacher == "Все" or r["teacher"] == f_teacher)
+                and (f_status  == "Все" or r["status"]     == _f_status_val)
+                and (f_error   == "Все" or r["error_type"] == _f_error_val)
+            ]
             if not filtered:
                 continue
 
@@ -1781,7 +1785,7 @@ def _is_open(r):
 with tab5:
     st.subheader("📊 Статистика по проверкам")
 
-    stat_records = load_history()
+    stat_records = _all_history
 
     if not stat_records:
         st.info("История пуста — запустите проверку для получения статистики.")
@@ -1829,12 +1833,22 @@ with tab5:
             sr = [r for r in stat_records if _cf <= r["date"] <= _ct]
             sel_period = "custom"  # used later to control dynamics block
 
-        # ── Top metrics ───────────────────────────────────────────────────────
+        # ── Single pass: group by teacher + count statuses ───────────────────
+        from collections import Counter as _Counter, defaultdict as _dd
+        _sr_by_teacher: dict = _dd(list)
+        _sr_status_cnt = _Counter()
+        _sr_teachers   = set()
+        for _r in sr:
+            _sr_by_teacher[_r["teacher"]].append(_r)
+            _sr_status_cnt[_r["status"]] += 1
+            _sr_teachers.add(_r["teacher"])
+
+        _processed_statuses = {"handled", "pass_set", "message_sent", "resolved"}
         total_rec   = len(sr)
-        processed_n = sum(1 for r in sr if _is_processed(r))
-        open_n      = sum(1 for r in sr if _is_open(r))
-        skipped_n   = sum(1 for r in sr if r["status"] == "skipped")
-        teachers_n  = len(set(r["teacher"] for r in sr))
+        processed_n = sum(_sr_status_cnt.get(s, 0) for s in _processed_statuses)
+        open_n      = _sr_status_cnt.get("open", 0)
+        skipped_n   = _sr_status_cnt.get("skipped", 0)
+        teachers_n  = len(_sr_teachers)
 
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("📋 Всего ошибок",      total_rec)
@@ -1852,14 +1866,15 @@ with tab5:
             st.markdown("**По преподавателям**")
 
             teacher_rows = []
-            for teacher in sorted(set(r["teacher"] for r in sr)):
-                t = [r for r in sr if r["teacher"] == teacher]
-                done  = sum(1 for r in t if _is_processed(r))
+            for teacher in sorted(_sr_by_teacher.keys()):
+                t     = _sr_by_teacher[teacher]
+                t_cnt = _Counter(r["status"] for r in t)
+                done  = sum(t_cnt.get(s, 0) for s in _processed_statuses)
                 total = len(t)
                 teacher_rows.append({
                     "Преподаватель":   teacher,
                     "✅ Обработано":    done,
-                    "🔴 Не обработано": sum(1 for r in t if _is_open(r)),
+                    "🔴 Не обработано": t_cnt.get("open", 0),
                     "Всего":           total,
                     "% выполнено":     round(done / total * 100) if total else 0,
                 })
@@ -1892,12 +1907,12 @@ with tab5:
         with col_sum:
             st.markdown("**Сводка по статусам**")
             summary_rows = [
-                {"Статус": "✅ Обработано",                 "Кол-во": sum(1 for r in sr if r["status"] == "handled")},
-                {"Статус": "🟢 Исправлено самостоятельно",  "Кол-во": sum(1 for r in sr if r["status"] == "resolved")},
-                {"Статус": "💬 Сообщение отправлено",        "Кол-во": sum(1 for r in sr if r["status"] == "message_sent")},
-                {"Статус": "🚫 Пропуск выставлен",          "Кол-во": sum(1 for r in sr if r["status"] == "pass_set")},
-                {"Статус": "🔴 Открыто",                    "Кол-во": sum(1 for r in sr if r["status"] == "open")},
-                {"Статус": "⚪ Пропущено",                  "Кол-во": sum(1 for r in sr if r["status"] == "skipped")},
+                {"Статус": "✅ Обработано",                 "Кол-во": _sr_status_cnt.get("handled", 0)},
+                {"Статус": "🟢 Исправлено самостоятельно",  "Кол-во": _sr_status_cnt.get("resolved", 0)},
+                {"Статус": "💬 Сообщение отправлено",        "Кол-во": _sr_status_cnt.get("message_sent", 0)},
+                {"Статус": "🚫 Пропуск выставлен",          "Кол-во": _sr_status_cnt.get("pass_set", 0)},
+                {"Статус": "🔴 Открыто",                    "Кол-во": _sr_status_cnt.get("open", 0)},
+                {"Статус": "⚪ Пропущено",                  "Кол-во": _sr_status_cnt.get("skipped", 0)},
             ]
             st.dataframe(
                 pd.DataFrame(summary_rows),
@@ -1910,9 +1925,14 @@ with tab5:
             st.divider()
             st.markdown("**📅 Динамика по периодам**")
 
+            # Pre-group stat_records by period key — O(N) instead of O(N×P)
+            _stat_by_period: dict = _dd(list)
+            for _r in stat_records:
+                _stat_by_period[(_r["period_from"], _r["period_to"])].append(_r)
+
             period_rows = []
             for pf, pt in all_stat_periods:
-                p = [r for r in stat_records if r["period_from"] == pf and r["period_to"] == pt]
+                p = _stat_by_period.get((pf, pt), [])
                 p_done = sum(1 for r in p if _is_processed(r))
                 period_rows.append({
                     "Период":           f"{fmt_date(pf)} — {fmt_date(pt)}",
