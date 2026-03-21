@@ -17,15 +17,31 @@ st.set_page_config(
     page_title="Проверка отчётов",
     page_icon="📋",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 st.markdown("""
 <style>
-/* Sidebar width */
-[data-testid="stSidebar"] { min-width: 260px; max-width: 260px; }
+/* Скрыть кнопку открытия сайдбара */
+[data-testid="collapsedControl"] { display: none; }
+[data-testid="stSidebar"]        { display: none; }
+
+/* Убрать лишние отступы сверху */
+.block-container { padding-top: 1.2rem !important; }
+
+/* Шапка приложения */
+.app-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 0.5rem;
+}
+
 /* Teacher card */
 .teacher-card { border-radius: 10px; padding: 4px 0; }
+
+/* Метрики компактнее */
+[data-testid="stMetric"] { background: #1e1e2e; border-radius: 10px; padding: 12px 16px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -508,68 +524,61 @@ def update_sheet_statuses(sheet_id, sheet_name, sent_teachers, date_from, date_t
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  SIDEBAR — SETTINGS
+#  HEADER — title + dates + settings popover
 # ─────────────────────────────────────────────────────────────────────────────
 
-with st.sidebar:
-    st.title("⚙️ Настройки")
+_title_col, _d1_col, _d2_col, _gear_col = st.columns([4, 1.2, 1.2, 0.5])
 
-    with st.expander("🏫 HolliHop", expanded=True):
-        subdomain = st.text_input("Субдомен", value=cfg.get("subdomain", "matrix"))
-        api_key   = st.text_input("API ключ",  value=cfg.get("api_key", ""), type="password")
+with _title_col:
+    st.markdown("## 📋 Проверка отчётов HolliHop")
 
-    with st.expander("📅 Период проверки", expanded=True):
-        c1, c2 = st.columns(2)
-        default_from = date.today() - timedelta(days=1)
-        default_to   = date.today()
-        with c1:
-            date_from_val = st.date_input("С",  value=default_from)
-        with c2:
-            date_to_val   = st.date_input("По", value=default_to)
+with _d1_col:
+    date_from_val = st.date_input("С", value=date.today() - timedelta(days=7), label_visibility="collapsed",
+                                  help="Начало периода")
+    st.caption(f"С: **{date_from_val.strftime('%d.%m.%Y')}**")
 
-    with st.expander("📨 Пачка", expanded=True):
-        pachca_token    = st.text_input("Токен Пачки", value=cfg.get("pachca_token", ""), type="password")
-        create_reminder = st.checkbox("Создавать напоминания в Пачке", value=cfg.get("create_reminder", False))
-        reminder_days   = st.number_input("Дней до дедлайна", min_value=1, max_value=14, value=cfg.get("reminder_days", 1))
+with _d2_col:
+    date_to_val = st.date_input("По", value=date.today(), label_visibility="collapsed",
+                                help="Конец периода")
+    st.caption(f"По: **{date_to_val.strftime('%d.%m.%Y')}**")
 
-    with st.expander("📊 Google Таблица (необязательно)"):
-        sheet_id   = st.text_input("ID таблицы",   value=cfg.get("sheet_id", ""))
-        sheet_name = st.text_input("Имя листа",    value=cfg.get("sheet_name", "Лист1"))
-        creds_file = st.file_uploader(
-            "Service Account JSON",
-            type=["json"],
-            help="Скачай сервисный аккаунт из Google Cloud Console и загрузи сюда",
-        )
-        creds_json = creds_file.read().decode() if creds_file else cfg.get("creds_json", None)
+with _gear_col:
+    with st.popover("⚙️", use_container_width=True):
+        st.markdown("### ⚙️ Настройки")
 
-    with st.expander("👤 Проверяющий"):
-        reviewer_name = st.text_input("Имя", value=cfg.get("reviewer_name", "Артём"))
+        st.markdown("**🏫 HolliHop**")
+        subdomain = st.text_input("Субдомен", value=cfg.get("subdomain", "matrix"), key="cfg_subdomain")
+        api_key   = st.text_input("API ключ",  value=cfg.get("api_key", ""), type="password", key="cfg_api_key")
 
-    st.divider()
-    _is_cloud = not os.path.exists(CONFIG_FILE)
-    if _is_cloud:
-        st.caption("☁️ Облако: настройки хранятся в Secrets (см. дашборд Streamlit)")
-    else:
-        if st.button("💾 Сохранить настройки", use_container_width=True):
-            save_config({
-                "subdomain":      subdomain,
-                "api_key":        api_key,
-                "pachca_token":   pachca_token,
-                "create_reminder": create_reminder,
-                "reminder_days":  reminder_days,
-                "sheet_id":       sheet_id,
-                "sheet_name":     sheet_name,
-                "reviewer_name":  reviewer_name,
-                "creds_json":     creds_json,
-            })
-            st.success("Настройки сохранены!")
+        st.markdown("**📨 Пачка**")
+        pachca_token    = st.text_input("Токен Пачки", value=cfg.get("pachca_token", ""), type="password", key="cfg_pachca")
+        create_reminder = st.checkbox("Создавать напоминания", value=cfg.get("create_reminder", False), key="cfg_reminder")
+        reminder_days   = st.number_input("Дней до дедлайна", min_value=1, max_value=14,
+                                          value=int(cfg.get("reminder_days", 1)), key="cfg_rdays")
 
+        st.markdown("**👤 Проверяющий**")
+        reviewer_name = st.text_input("Имя", value=cfg.get("reviewer_name", "Артём"), key="cfg_reviewer")
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  MAIN — HEADER
-# ─────────────────────────────────────────────────────────────────────────────
+        with st.expander("📊 Google Таблица (необязательно)"):
+            sheet_id   = st.text_input("ID таблицы",  value=cfg.get("sheet_id", ""),    key="cfg_sheet_id")
+            sheet_name = st.text_input("Имя листа",   value=cfg.get("sheet_name", "Лист1"), key="cfg_sheet_name")
+            creds_file = st.file_uploader("Service Account JSON", type=["json"], key="cfg_creds")
+            creds_json = creds_file.read().decode() if creds_file else cfg.get("creds_json", None)
 
-st.title("📋 Проверка отчётов HolliHop")
+        st.divider()
+        _is_cloud = not os.path.exists(CONFIG_FILE)
+        if _is_cloud:
+            st.caption("☁️ Настройки хранятся в Streamlit Secrets")
+        else:
+            if st.button("💾 Сохранить", use_container_width=True, key="cfg_save"):
+                save_config({
+                    "subdomain": subdomain, "api_key": api_key,
+                    "pachca_token": pachca_token, "create_reminder": create_reminder,
+                    "reminder_days": reminder_days, "sheet_id": sheet_id,
+                    "sheet_name": sheet_name, "reviewer_name": reviewer_name,
+                    "creds_json": creds_json,
+                })
+                st.success("✅ Сохранено!")
 
 DATE_FROM = date_from_val.strftime("%Y-%m-%d")
 DATE_TO   = date_to_val.strftime("%Y-%m-%d")
