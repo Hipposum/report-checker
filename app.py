@@ -723,6 +723,9 @@ def update_sheet_statuses(sheet_id, sheet_name, sent_teachers, date_from, date_t
         return False, str(e)
 
 
+# Load teacher info BEFORE the header (settings popover references it)
+_teacher_info = load_teacher_info(creds_json_str=cfg.get("creds_json") or "")
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  HEADER — title + dates + settings popover
 # ─────────────────────────────────────────────────────────────────────────────
@@ -794,9 +797,6 @@ DATE_TO   = date_to_val.strftime("%Y-%m-%d")
 BASE_URL  = f"https://{subdomain}.t8s.ru/Api/V2"
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📥 Загрузить данные", "✉️ Сообщения", "📤 Отправить", "📚 История", "📊 Статистика"])
-
-# Load teacher info from Google Sheets (cached 1 h)
-_teacher_info = load_teacher_info(creds_json_str=creds_json or "")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
