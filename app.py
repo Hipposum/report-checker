@@ -347,13 +347,28 @@ def load_teacher_info(creds_json_str: str = "") -> tuple:
                 return w
         return None
 
+    def _ws_to_records(ws) -> list:
+        """Read worksheet tolerating empty/duplicate column headers."""
+        all_vals = ws.get_all_values()
+        if not all_vals:
+            return []
+        headers = [h.strip() for h in all_vals[0]]
+        records = []
+        for row in all_vals[1:]:
+            row_dict = {}
+            for i, val in enumerate(row):
+                if i < len(headers) and headers[i]:
+                    row_dict[headers[i]] = val
+            records.append(row_dict)
+        return records
+
     pub_err = ""
 
     # 1) st.secrets["gcp_service_account"] — native TOML dict (best on cloud)
     try:
         ws = _open_sheet(dict(st.secrets["gcp_service_account"]))
         if ws:
-            data = _parse_rows(ws.get_all_records())
+            data = _parse_rows(_ws_to_records(ws))
             return data, f"✅ Загружено (Secrets): {len(data)} преп."
     except Exception as e:
         pub_err = f"secrets: {e}"
@@ -364,7 +379,7 @@ def load_teacher_info(creds_json_str: str = "") -> tuple:
             sa_info = json.loads(creds_json_str)
             ws = _open_sheet(sa_info)
             if ws:
-                data = _parse_rows(ws.get_all_records())
+                data = _parse_rows(_ws_to_records(ws))
                 return data, f"✅ Загружено (JSON): {len(data)} преп."
         except Exception as e:
             pub_err += f" | json: {e}"
