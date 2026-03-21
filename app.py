@@ -654,7 +654,7 @@ def update_sheet_statuses(sheet_id, sheet_name, sent_teachers, date_from, date_t
 #  HEADER — title + dates + settings popover
 # ─────────────────────────────────────────────────────────────────────────────
 
-_title_col, _dates_col, _gear_col = st.columns([4, 2.5, 0.4])
+_title_col, _dates_col, _gear_col = st.columns([4, 2.5, 0.7])
 
 with _title_col:
     st.markdown("## 📋 Проверка отчётов HolliHop")
