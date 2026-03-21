@@ -308,11 +308,10 @@ _TEACHER_SHEET_ID  = "1ipNiGu1cjGfkhWEmsJ0NG4K4icyYyIDFvpwRFZdOklQ"
 _TEACHER_SHEET_GID = "1826758403"
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_teacher_info(creds_json_str: str = "") -> dict:
+def load_teacher_info(creds_json_str: str = "") -> tuple:
     """
-    Returns dict: { "ФИО": {"is_intern": bool, "subject": str, "fired": bool} }
-    Uses gspread (service account) if credentials provided, else tries public CSV URL.
-    Cached for 1 hour.
+    Returns (dict, str) — teacher info dict and status message.
+    dict: { "ФИО": {"is_intern": bool, "subject": str, "fired": bool} }
     """
     import io
 
@@ -334,12 +333,25 @@ def load_teacher_info(creds_json_str: str = "") -> dict:
         try:
             gc = _gs_client(creds_json_str)
             sh = gc.open_by_key(_TEACHER_SHEET_ID)
-            ws = sh.get_worksheet_by_id(int(_TEACHER_SHEET_GID))
-            return _parse_rows(ws.get_all_records())
-        except Exception:
-            pass  # fall through to public URL
+            # Find worksheet by gid (compatible with all gspread versions)
+            target_gid = int(_TEACHER_SHEET_GID)
+            ws = None
+            for w in sh.worksheets():
+                if w.id == target_gid:
+                    ws = w
+                    break
+            if ws is None:
+                return {}, f"❌ Лист с gid={target_gid} не найден в таблице"
+            data = _parse_rows(ws.get_all_records())
+            return data, f"✅ Загружено через Service Account: {len(data)} преп."
+        except Exception as e:
+            err = str(e)
+            # fall through to public URL, but keep error for reporting
+            pub_err = err
+    else:
+        pub_err = ""
 
-    # — Fallback: public CSV (works if sheet is shared "anyone with the link") —
+    # — Fallback: public CSV ——————————————————————————————————————————————————
     url = (
         f"https://docs.google.com/spreadsheets/d/{_TEACHER_SHEET_ID}"
         f"/export?format=csv&gid={_TEACHER_SHEET_GID}"
@@ -348,9 +360,11 @@ def load_teacher_info(creds_json_str: str = "") -> dict:
         r = requests.get(url, timeout=15, allow_redirects=True)
         r.raise_for_status()
         df = pd.read_csv(io.StringIO(r.content.decode("utf-8", errors="replace")))
-        return _parse_rows(df.to_dict("records"))
-    except Exception:
-        return {}
+        data = _parse_rows(df.to_dict("records"))
+        return data, f"✅ Загружено через публичный URL: {len(data)} преп."
+    except Exception as e:
+        msg = f"❌ Service Account: {pub_err} | CSV: {e}" if pub_err else f"❌ {e}"
+        return {}, msg
 
 
 def intern_badge(teacher: str, teacher_info: dict) -> str:
@@ -724,7 +738,7 @@ def update_sheet_statuses(sheet_id, sheet_name, sent_teachers, date_from, date_t
 
 
 # Load teacher info BEFORE the header (settings popover references it)
-_teacher_info = load_teacher_info(creds_json_str=cfg.get("creds_json") or "")
+_teacher_info, _teacher_info_status = load_teacher_info(creds_json_str=cfg.get("creds_json") or "")
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  HEADER — title + dates + settings popover
@@ -768,11 +782,13 @@ with _gear_col:
 
         st.divider()
         st.markdown("**📋 Данные о преподавателях**")
-        _ti_count = len(_teacher_info)
-        if _ti_count:
-            st.caption(f"✅ Загружено: {_ti_count} преподавателей")
-        else:
-            st.caption("⚠️ Не загружено — нужен Service Account JSON выше")
+        st.caption(_teacher_info_status if _teacher_info_status else "⚠️ Не загружено")
+        if _teacher_info:
+            _interns = [n for n, v in _teacher_info.items() if v.get("is_intern")]
+            st.caption(f"Стажёров: {len(_interns)} из {len(_teacher_info)}")
+            with st.expander("Примеры имён из таблицы"):
+                for n in list(_teacher_info.keys())[:8]:
+                    st.caption(n)
         if st.button("🔄 Обновить сейчас", key="refresh_teacher_info", use_container_width=True):
             load_teacher_info.clear()
             st.rerun()
