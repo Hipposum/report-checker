@@ -1378,42 +1378,60 @@ with tab4:
 
         # ── Массовые действия ─────────────────────────────────────────────────
         _actionable_statuses = ("open", "message_sent", "pass_set")
-        _actionable_ids = {r["id"] for r in history_records if r["status"] in _actionable_statuses}
-        _n_sel = sum(
-            1 for rid in _actionable_ids
-            if st.session_state.get(f"hsel_{rid}", False)
-        )
+        _closeable_statuses  = ("handled", "skipped", "resolved")
+        _all_sel_ids         = {r["id"] for r in history_records}
+
+        _n_sel_open   = sum(1 for r in history_records
+                            if r["status"] in _actionable_statuses
+                            and st.session_state.get(f"hsel_{r['id']}", False))
+        _n_sel_closed = sum(1 for r in history_records
+                            if r["status"] in _closeable_statuses
+                            and st.session_state.get(f"hsel_{r['id']}", False))
+        _n_sel_total  = _n_sel_open + _n_sel_closed
 
         with st.container():
-            _ba1, _ba2, _ba3, _ba4, _ba5 = st.columns([1.5, 1.5, 1.5, 1.5, 3])
+            _ba1, _ba2, _ba3, _ba4, _ba5, _ba6 = st.columns([1.4, 1.4, 1.6, 1.6, 1.6, 2])
+
             if _ba1.button("☑️ Выбрать все", use_container_width=True, key="hist_sel_all"):
-                for rid in _actionable_ids:
-                    st.session_state[f"hsel_{rid}"] = True
+                for r in history_records:
+                    st.session_state[f"hsel_{r['id']}"] = True
                 st.rerun()
             if _ba2.button("⬜ Снять всё", use_container_width=True, key="hist_desel_all"):
-                for rid in _actionable_ids:
-                    st.session_state[f"hsel_{rid}"] = False
+                for r in history_records:
+                    st.session_state[f"hsel_{r['id']}"] = False
                 st.rerun()
-            if _n_sel > 0:
-                if _ba3.button(f"✅ Обработано ({_n_sel})", use_container_width=True, key="hist_bulk_handled",
-                               type="primary"):
+
+            if _n_sel_open > 0:
+                if _ba3.button(f"✅ Обработано ({_n_sel_open})", use_container_width=True,
+                               key="hist_bulk_handled", type="primary"):
                     for r in history_records:
                         if st.session_state.get(f"hsel_{r['id']}", False) and r["status"] in _actionable_statuses:
                             update_history_record(r["id"], "handled", r.get("reviewer_comment", ""), reviewer_name)
                             st.session_state[f"hsel_{r['id']}"] = False
                     st.rerun()
-                if _ba4.button(f"⚪ Пропустить ({_n_sel})", use_container_width=True, key="hist_bulk_skip"):
+                if _ba4.button(f"⚪ Пропустить ({_n_sel_open})", use_container_width=True,
+                               key="hist_bulk_skip"):
                     for r in history_records:
                         if st.session_state.get(f"hsel_{r['id']}", False) and r["status"] in _actionable_statuses:
                             update_history_record(r["id"], "skipped", r.get("reviewer_comment", ""), reviewer_name)
                             st.session_state[f"hsel_{r['id']}"] = False
                     st.rerun()
-            else:
-                _ba3.empty()
-                _ba4.empty()
-            if _n_sel > 0:
-                _ba5.markdown(f"<span style='line-height:2.4rem;color:#a78bfa;font-weight:600'>Выбрано: {_n_sel}</span>",
-                              unsafe_allow_html=True)
+
+            if _n_sel_closed > 0:
+                if _ba5.button(f"↺ Переоткрыть ({_n_sel_closed})", use_container_width=True,
+                               key="hist_bulk_reopen"):
+                    for r in history_records:
+                        if st.session_state.get(f"hsel_{r['id']}", False) and r["status"] in _closeable_statuses:
+                            update_history_record(r["id"], "open", r.get("reviewer_comment", ""), reviewer_name)
+                            st.session_state[f"hsel_{r['id']}"] = False
+                    st.rerun()
+
+            if _n_sel_total > 0:
+                _ba6.markdown(
+                    f"<span style='line-height:2.4rem;color:#a78bfa;font-weight:600'>"
+                    f"Выбрано: {_n_sel_total}</span>",
+                    unsafe_allow_html=True,
+                )
 
         st.divider()
 
@@ -1468,33 +1486,17 @@ with tab4:
 
             with st.expander(header, expanded=(open_n > 0)):
 
-                # Bulk actions row
-                bulk_c1, bulk_c2, _ = st.columns([2, 2, 4])
-                if bulk_c1.button(
-                    f"✅ Отметить все обработанными",
-                    key=f"bulk_handled_{pf}_{pt}",
-                    use_container_width=True,
-                    disabled=open_n == 0,
-                ):
-                    for rec in filtered:
-                        if rec["status"] == "open":
-                            update_history_record(rec["id"], "handled", rec.get("reviewer_comment", ""), reviewer_name)
-                    st.rerun()
-
-                st.write("")
-
                 for rec in sorted(filtered, key=lambda r: (r["teacher"], r["date"])):
                     s_label, s_color = _STATUS_META.get(rec["status"], ("❓", "#888"))
 
                     with st.container(border=True):
                         r_c0, r_c1, r_c2, r_c3 = st.columns([0.25, 3, 2, 3])
                         with r_c0:
-                            if rec["status"] in _actionable_statuses:
-                                st.checkbox(
-                                    "sel",
-                                    key=f"hsel_{rec['id']}",
-                                    label_visibility="collapsed",
-                                )
+                            st.checkbox(
+                                "sel",
+                                key=f"hsel_{rec['id']}",
+                                label_visibility="collapsed",
+                            )
 
                         with r_c1:
                             try:
