@@ -321,10 +321,12 @@ def load_teacher_info(creds_json_str: str = "") -> tuple:
             name = str(row.get("ФИО", "")).strip()
             if not name or name.lower() == "nan":
                 continue
+            _raw_status = str(row.get("Статус набора", "")).strip()
             result[name] = {
                 "is_intern": str(row.get("стажер", "")).strip().lower() == "стажер",
                 "subject":   str(row.get("Предмет", "")).strip(),
-                "fired":     str(row.get("Статус набора", "")).strip().lower() == "уволен",
+                "status":    _raw_status,
+                "fired":     _raw_status.lower() == "уволен",
             }
         return result
 
@@ -1975,7 +1977,7 @@ with tab6:
         st.warning("Данные о преподавателях не загружены. Настройте Google Sheets в ⚙️.")
     else:
         # ── Фильтры ───────────────────────────────────────────────────────────
-        bc1, bc2, bc3 = st.columns([2, 2, 2])
+        bc1, bc2, bc3, bc4 = st.columns([2, 2, 2, 1])
 
         with bc1:
             category_opt = st.selectbox(
@@ -1987,7 +1989,6 @@ with tab6:
             all_subjects = sorted({
                 v["subject"] for v in _ti.values()
                 if v.get("subject") and v["subject"] not in ("", "nan", "-")
-                and not v.get("fired", False)
             })
             subject_opt = st.selectbox(
                 "Предмет",
@@ -1995,11 +1996,24 @@ with tab6:
                 key="bc_subject",
             )
         with bc3:
+            all_statuses = sorted({
+                v["status"] for v in _ti.values()
+                if v.get("status") and v["status"] not in ("", "nan", "-")
+            })
+            status_opt = st.selectbox(
+                "Статус набора",
+                ["Все"] + all_statuses,
+                key="bc_status",
+            )
+        with bc4:
+            st.write("")  # align with selectbox labels
             hide_fired = st.checkbox("Скрыть уволенных", value=True, key="bc_hide_fired")
 
         # ── Отфильтрованный список ─────────────────────────────────────────
         def _bc_filter(name, info):
             if hide_fired and info.get("fired", False):
+                return False
+            if status_opt != "Все" and info.get("status") != status_opt:
                 return False
             if category_opt == "Стажёры" and not info.get("is_intern"):
                 return False
