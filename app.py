@@ -2094,10 +2094,11 @@ with tab6:
             type="primary",
             use_container_width=False,
         ):
-            if not pachca_token:
+            _bc_pachca_token = cfg.get("pachca_token", "")
+            if not _bc_pachca_token:
                 st.error("Токен Pachca не настроен — откройте ⚙️.")
             else:
-                pachca = PachcaClient(pachca_token)
+                pachca = PachcaClient(_bc_pachca_token)
                 with st.status("Загружаю список пользователей Pachca…", expanded=True) as bc_status:
                     pachca.load_all_users(write_fn=st.write)
                     ok_list, fail_list = [], []
