@@ -720,16 +720,17 @@ def set_student_passes(base_url, api_key, passes, absence_comment, dry_run=False
 
     # Отправляем батчами по batch_size записей
     for i in range(0, len(passes), batch_size):
-        batch = [
-            {
+        batch = []
+        for p in passes[i : i + batch_size]:
+            existing = (p.get("existing_desc") or "").strip()
+            combined = f"{existing}\n{absence_comment}".strip() if existing else absence_comment
+            batch.append({
                 "edUnitId":        p["edUnitId"],
                 "studentClientId": p["studentClientId"],
                 "date":            p["date"],
                 "pass":            True,
-                "description":     absence_comment,
-            }
-            for p in passes[i : i + batch_size]
-        ]
+                "description":     combined,
+            })
         if write_fn:
             write_fn(f"Пакет {i // batch_size + 1}: {len(batch)} записей…")
 
@@ -859,7 +860,7 @@ DATE_FROM = date_from_val.strftime("%Y-%m-%d")
 DATE_TO   = date_to_val.strftime("%Y-%m-%d")
 BASE_URL  = f"https://{subdomain}.t8s.ru/Api/V2"
 
-tab4, tab5, tab1, tab2, tab3 = st.tabs(["📚 История", "📊 Статистика", "📥 Загрузить данные", "✉️ Сообщения", "📤 Отправить"])
+tab4, tab5, tab1, tab2, tab3, tab6 = st.tabs(["📚 История", "📊 Статистика", "📥 Загрузить данные", "✉️ Сообщения", "📤 Отправить", "📢 Рассылка"])
 
 
 # Load history once per render — reused across Tab 4 and Tab 5
@@ -945,6 +946,7 @@ with tab1:
                                 "edUnitId":        eu_id,
                                 "studentClientId": student_id,
                                 "date":            d,
+                                "existing_desc":   desc,
                             })
                         if is_pass and not desc:
                             for t in teachers:
@@ -1959,3 +1961,148 @@ with tab5:
                     ),
                 },
             )
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  TAB 6 — РАССЫЛКА
+# ─────────────────────────────────────────────────────────────────────────────
+
+with tab6:
+    st.subheader("📢 Рассылка преподавателям")
+
+    _ti = _teacher_info  # already loaded above
+
+    if not _ti:
+        st.warning("Данные о преподавателях не загружены. Настройте Google Sheets в ⚙️.")
+    else:
+        # ── Фильтры ───────────────────────────────────────────────────────────
+        bc1, bc2, bc3 = st.columns([2, 2, 2])
+
+        with bc1:
+            category_opt = st.selectbox(
+                "Категория",
+                ["Все", "Основной состав", "Стажёры"],
+                key="bc_category",
+            )
+        with bc2:
+            all_subjects = sorted({
+                v["subject"] for v in _ti.values()
+                if v.get("subject") and v["subject"] not in ("", "nan", "-")
+                and not v.get("fired", False)
+            })
+            subject_opt = st.selectbox(
+                "Предмет",
+                ["Все"] + all_subjects,
+                key="bc_subject",
+            )
+        with bc3:
+            hide_fired = st.checkbox("Скрыть уволенных", value=True, key="bc_hide_fired")
+
+        # ── Отфильтрованный список ─────────────────────────────────────────
+        def _bc_filter(name, info):
+            if hide_fired and info.get("fired", False):
+                return False
+            if category_opt == "Стажёры" and not info.get("is_intern"):
+                return False
+            if category_opt == "Основной состав" and info.get("is_intern"):
+                return False
+            if subject_opt != "Все" and info.get("subject") != subject_opt:
+                return False
+            return True
+
+        filtered_teachers = {
+            name: info for name, info in _ti.items()
+            if _bc_filter(name, info)
+        }
+
+        # Group by subject for display
+        by_subject: dict = {}
+        for name, info in filtered_teachers.items():
+            subj = info.get("subject") or "Без предмета"
+            by_subject.setdefault(subj, []).append((name, info))
+        for subj in by_subject:
+            by_subject[subj].sort(key=lambda x: x[0])
+
+        total_filtered = len(filtered_teachers)
+
+        # ── Select / Deselect controls ────────────────────────────────────
+        st.divider()
+        sel_c1, sel_c2, sel_c3 = st.columns([2, 2, 4])
+        if sel_c1.button("☑️ Выбрать всех", key="bc_sel_all", use_container_width=True):
+            for nm in filtered_teachers:
+                st.session_state[f"bc_chk_{nm}"] = True
+            st.rerun()
+        if sel_c2.button("🔲 Снять всех", key="bc_desel_all", use_container_width=True):
+            for nm in filtered_teachers:
+                st.session_state[f"bc_chk_{nm}"] = False
+            st.rerun()
+
+        n_bc_selected = sum(
+            1 for nm in filtered_teachers
+            if st.session_state.get(f"bc_chk_{nm}", False)
+        )
+        sel_c3.markdown(f"**Выбрано: {n_bc_selected} из {total_filtered}**")
+
+        # ── Teacher list grouped by subject ──────────────────────────────
+        for subj in sorted(by_subject.keys()):
+            teachers_in_subj = by_subject[subj]
+            with st.expander(f"**{subj}** · {len(teachers_in_subj)} чел.", expanded=(subject_opt != "Все")):
+                for nm, info in teachers_in_subj:
+                    chk_key = f"bc_chk_{nm}"
+                    c1, c2 = st.columns([5, 1])
+                    with c1:
+                        is_intern = info.get("is_intern", False)
+                        intern_badge = ' <span class="pill pill-pass">🎓 Стажёр</span>' if is_intern else ""
+                        st.markdown(f"{nm}{intern_badge}", unsafe_allow_html=True)
+                    with c2:
+                        st.checkbox("", key=chk_key, label_visibility="collapsed")
+
+        st.divider()
+
+        # ── Message composer ──────────────────────────────────────────────
+        st.markdown("**✏️ Текст сообщения**")
+        bc_message = st.text_area(
+            "Текст",
+            placeholder="Введите текст рассылки...",
+            height=150,
+            key="bc_message_text",
+            label_visibility="collapsed",
+        )
+
+        # ── Send button ───────────────────────────────────────────────────
+        recipients = [nm for nm in filtered_teachers if st.session_state.get(f"bc_chk_{nm}", False)]
+
+        if st.button(
+            f"📤 Отправить {len(recipients)} преподавателям",
+            key="bc_send_btn",
+            disabled=not recipients or not bc_message.strip(),
+            type="primary",
+            use_container_width=False,
+        ):
+            if not pachca_token:
+                st.error("Токен Pachca не настроен — откройте ⚙️.")
+            else:
+                pachca = PachcaClient(pachca_token)
+                with st.status("Загружаю список пользователей Pachca…", expanded=True) as bc_status:
+                    pachca.load_all_users(write_fn=st.write)
+                    ok_list, fail_list = [], []
+                    for nm in recipients:
+                        user = pachca.find_user(nm)
+                        if not user:
+                            fail_list.append((nm, "Не найден в Pachca"))
+                            st.write(f"⚠️ {nm} — не найден")
+                            continue
+                        try:
+                            pachca.send_dm(user["id"], bc_message.strip())
+                            ok_list.append(nm)
+                            st.write(f"✅ {nm}")
+                        except Exception as _e:
+                            fail_list.append((nm, str(_e)))
+                            st.write(f"❌ {nm} — {_e}")
+
+                    if ok_list:
+                        bc_status.update(label=f"✅ Отправлено: {len(ok_list)}, ошибок: {len(fail_list)}", state="complete")
+                    else:
+                        bc_status.update(label="❌ Не удалось отправить ни одного сообщения", state="error")
+
+                if fail_list:
+                    st.warning("Не найдены в Pachca:\n" + "\n".join(f"• {nm}: {reason}" for nm, reason in fail_list))
