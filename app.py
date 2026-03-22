@@ -1976,8 +1976,8 @@ with tab6:
     if not _ti:
         st.warning("Данные о преподавателях не загружены. Настройте Google Sheets в ⚙️.")
     else:
-        # ── Фильтры ───────────────────────────────────────────────────────────
-        bc1, bc2, bc3, bc4 = st.columns([2, 2, 2, 1])
+        # ── Фильтры — строка 1: три селекта ──────────────────────────────────
+        bc1, bc2, bc3 = st.columns(3)
 
         with bc1:
             category_opt = st.selectbox(
@@ -2005,9 +2005,6 @@ with tab6:
                 ["Все"] + all_statuses,
                 key="bc_status",
             )
-        with bc4:
-            st.write("")  # align with selectbox labels
-            hide_fired = st.checkbox("Скрыть уволенных", value=True, key="bc_hide_fired")
 
         # ── Отфильтрованный список ─────────────────────────────────────────
         def _bc_filter(name, info):
@@ -2038,9 +2035,9 @@ with tab6:
 
         total_filtered = len(filtered_teachers)
 
-        # ── Select / Deselect controls ────────────────────────────────────
+        # ── Строка 2: действия + чекбокс ─────────────────────────────────────
         st.divider()
-        sel_c1, sel_c2, sel_c3 = st.columns([2, 2, 4])
+        sel_c1, sel_c2, sel_c3, sel_c4 = st.columns([2, 2, 2, 2])
         if sel_c1.button("☑️ Выбрать всех", key="bc_sel_all", use_container_width=True):
             for nm in filtered_teachers:
                 st.session_state[f"bc_chk_{nm}"] = True
@@ -2054,7 +2051,11 @@ with tab6:
             1 for nm in filtered_teachers
             if st.session_state.get(f"bc_chk_{nm}", False)
         )
-        sel_c3.markdown(f"**Выбрано: {n_bc_selected} из {total_filtered}**")
+        sel_c3.markdown(f"<div style='padding-top:0.6rem'><b>Выбрано: {n_bc_selected} из {total_filtered}</b></div>", unsafe_allow_html=True)
+        with sel_c4:
+            st.markdown("<div style='padding-top:0.45rem'>", unsafe_allow_html=True)
+            hide_fired = st.checkbox("Скрыть уволенных", value=True, key="bc_hide_fired")
+            st.markdown("</div>", unsafe_allow_html=True)
 
         # ── Teacher list grouped by subject ──────────────────────────────
         for subj in sorted(by_subject.keys()):
