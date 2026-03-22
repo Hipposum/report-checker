@@ -2098,7 +2098,7 @@ with tab6:
             if not _bc_pachca_token:
                 st.error("Токен Pachca не настроен — откройте ⚙️.")
             else:
-                pachca = PachcaClient(_bc_pachca_token)
+                pachca = PachcaAPI(_bc_pachca_token)
                 with st.status("Загружаю список пользователей Pachca…", expanded=True) as bc_status:
                     pachca.load_all_users(write_fn=st.write)
                     ok_list, fail_list = [], []
