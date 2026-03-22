@@ -2100,7 +2100,7 @@ with tab6:
             else:
                 pachca = PachcaAPI(_bc_pachca_token)
                 with st.status("Загружаю список пользователей Pachca…", expanded=True) as bc_status:
-                    pachca.load_all_users(write_fn=st.write)
+                    pachca.load_users(write_fn=st.write)
                     ok_list, fail_list = [], []
                     for nm in recipients:
                         user = pachca.find_user(nm)
