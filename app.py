@@ -2007,6 +2007,9 @@ with tab6:
             )
 
         # ── Отфильтрованный список ─────────────────────────────────────────
+        # Read hide_fired from state before the checkbox widget is rendered
+        hide_fired = st.session_state.get("bc_hide_fired", True)
+
         def _bc_filter(name, info):
             if hide_fired and info.get("fired", False):
                 return False
@@ -2053,9 +2056,7 @@ with tab6:
         )
         sel_c3.markdown(f"<div style='padding-top:0.6rem'><b>Выбрано: {n_bc_selected} из {total_filtered}</b></div>", unsafe_allow_html=True)
         with sel_c4:
-            st.markdown("<div style='padding-top:0.45rem'>", unsafe_allow_html=True)
-            hide_fired = st.checkbox("Скрыть уволенных", value=True, key="bc_hide_fired")
-            st.markdown("</div>", unsafe_allow_html=True)
+            st.checkbox("Скрыть уволенных", value=True, key="bc_hide_fired")
 
         # ── Teacher list grouped by subject ──────────────────────────────
         for subj in sorted(by_subject.keys()):
