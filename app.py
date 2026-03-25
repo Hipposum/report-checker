@@ -1629,13 +1629,18 @@ with tab4:
             except Exception:
                 pf_str, pt_str = pf, pt
 
-            open_n    = sum(1 for r in filtered if r["status"] == "open")
-            handled_n = sum(1 for r in filtered if r["status"] == "handled")
+            from collections import Counter as _HCnt
+            _hcnt     = _HCnt(r["status"] for r in filtered)
+            open_n    = _hcnt.get("open", 0)
+            handled_n = _hcnt.get("handled", 0) + _hcnt.get("pass_set", 0) + _hcnt.get("message_sent", 0)
+            resolved_n_h = _hcnt.get("resolved", 0)
             header    = f"📅 {pf_str} — {pt_str}  ·  {len(filtered)} записей"
             if open_n:
                 header += f"  ·  🔴 {open_n} открытых"
             if handled_n:
                 header += f"  ·  ✅ {handled_n} обработано"
+            if resolved_n_h:
+                header += f"  ·  🟢 {resolved_n_h} исправлено"
 
             with st.expander(header, expanded=(open_n > 0)):
 
@@ -1788,20 +1793,23 @@ def _is_open(r):
     return r["status"] == "open"
 
 with tab5:
-    st.subheader("📊 Статистика по проверкам")
+    _s_hdr, _s_refresh = st.columns([5, 1])
+    _s_hdr.subheader("📊 Статистика по проверкам")
+    if _s_refresh.button("🔄 Обновить", key="stat_refresh", use_container_width=True):
+        st.rerun()
 
     stat_records = _all_history
 
     if not stat_records:
         st.info("История пуста — запустите проверку для получения статистики.")
     else:
-        # ── Period filter ─────────────────────────────────────────────────────
+        # ── Filters row ───────────────────────────────────────────────────────
         all_stat_periods = sorted(
             set((r["period_from"], r["period_to"]) for r in stat_records),
             key=lambda x: x[0], reverse=True,
         )
 
-        _fmode_col, _fp1_col, _fp2_col = st.columns([1.5, 1.5, 1.5])
+        _fmode_col, _fp1_col, _fp2_col, _ftype_col = st.columns([1.5, 1.5, 1.5, 1.5])
         with _fmode_col:
             filter_mode = st.radio(
                 "Режим фильтра",
@@ -1825,7 +1833,6 @@ with tab5:
                 pf0, pt0 = all_stat_periods[pidx]
                 sr = [r for r in stat_records if r["period_from"] == pf0 and r["period_to"] == pt0]
         else:
-            # Custom date range
             _hist_dates = sorted(r["date"] for r in stat_records)
             _min_d = datetime.strptime(_hist_dates[0], "%Y-%m-%d").date() if _hist_dates else date.today() - timedelta(days=30)
             _max_d = datetime.strptime(_hist_dates[-1], "%Y-%m-%d").date() if _hist_dates else date.today()
@@ -1836,7 +1843,20 @@ with tab5:
             _cf = custom_from.strftime("%Y-%m-%d")
             _ct = custom_to.strftime("%Y-%m-%d")
             sr = [r for r in stat_records if _cf <= r["date"] <= _ct]
-            sel_period = "custom"  # used later to control dynamics block
+            sel_period = "custom"
+
+        # ── Error type filter ─────────────────────────────────────────────────
+        with _ftype_col:
+            _err_type_opt = st.selectbox(
+                "Тип ошибки",
+                ["Все типы", "📋 Нет отчёта", "💬 Нет комментария"],
+                key="stat_err_type",
+                label_visibility="collapsed",
+            )
+        if _err_type_opt == "📋 Нет отчёта":
+            sr = [r for r in sr if r.get("error_type") == "no_report"]
+        elif _err_type_opt == "💬 Нет комментария":
+            sr = [r for r in sr if r.get("error_type") == "no_abs_comment"]
 
         # ── Single pass: group by teacher + count statuses ───────────────────
         from collections import Counter as _Counter, defaultdict as _dd
@@ -1849,18 +1869,21 @@ with tab5:
             _sr_teachers.add(_r["teacher"])
 
         _processed_statuses = {"handled", "pass_set", "message_sent", "resolved"}
-        total_rec   = len(sr)
-        processed_n = sum(_sr_status_cnt.get(s, 0) for s in _processed_statuses)
-        open_n      = _sr_status_cnt.get("open", 0)
-        skipped_n   = _sr_status_cnt.get("skipped", 0)
-        teachers_n  = len(_sr_teachers)
+        total_rec    = len(sr)
+        processed_n  = sum(_sr_status_cnt.get(s, 0) for s in _processed_statuses)
+        resolved_n   = _sr_status_cnt.get("resolved", 0)
+        messages_n   = _sr_status_cnt.get("message_sent", 0)
+        open_n       = _sr_status_cnt.get("open", 0)
+        skipped_n    = _sr_status_cnt.get("skipped", 0)
+        teachers_n   = len(_sr_teachers)
 
-        m1, m2, m3, m4, m5 = st.columns(5)
-        m1.metric("📋 Всего ошибок",      total_rec)
-        m2.metric("✅ Обработано",         processed_n)
-        m3.metric("🔴 Не обработано",      open_n)
-        m4.metric("⚪ Пропущено",          skipped_n)
-        m5.metric("👩‍🏫 Преподавателей",    teachers_n)
+        m1, m2, m3, m4, m5, m6 = st.columns(6)
+        m1.metric("📋 Всего ошибок",            total_rec)
+        m2.metric("✅ Обработано",               processed_n)
+        m3.metric("🟢 Исправлено самост.",       resolved_n)
+        m4.metric("💬 Сообщений отправлено",     messages_n)
+        m5.metric("🔴 Не обработано",            open_n)
+        m6.metric("👩‍🏫 Преподавателей",          teachers_n)
 
         st.divider()
 
@@ -1877,11 +1900,11 @@ with tab5:
                 done  = sum(t_cnt.get(s, 0) for s in _processed_statuses)
                 total = len(t)
                 teacher_rows.append({
-                    "Преподаватель":   teacher,
+                    "Преподаватель":    teacher,
                     "✅ Обработано":    done,
                     "🔴 Не обработано": t_cnt.get("open", 0),
-                    "Всего":           total,
-                    "% выполнено":     round(done / total * 100) if total else 0,
+                    "Всего":            total,
+                    "% выполнено":      round(done / total * 100) if total else 0,
                 })
 
             df_teachers = pd.DataFrame(teacher_rows)
@@ -1905,7 +1928,6 @@ with tab5:
                 },
             )
 
-            # Export
             csv_stat = df_teachers.to_csv(index=False).encode("utf-8-sig")
             st.download_button("⬇️ Скачать CSV", csv_stat, "stats.csv", "text/csv")
 
