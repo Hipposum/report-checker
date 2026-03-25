@@ -257,7 +257,8 @@ def upsert_history(all_errors: list, period_from: str, period_to: str, reviewer:
     for key, rec in existing.items():
         if key not in current_keys:
             rec = rec.copy()
-            if rec["status"] == "open":
+            # Auto-resolve if still open or reminder was sent but teacher fixed it
+            if rec["status"] in ("open", "message_sent"):
                 rec.update({"status": "resolved", "updated_at": now})
             updated.append(rec)
 
