@@ -259,7 +259,7 @@ def upsert_history(all_errors: list, period_from: str, period_to: str, reviewer:
             rec = rec.copy()
             # Auto-resolve if still open or reminder was sent but teacher fixed it
             if rec["status"] in ("open", "message_sent"):
-                rec.update({"status": "resolved", "updated_at": now})
+                rec.update({"status": "handled", "updated_at": now})
             updated.append(rec)
 
     save_history(other + updated)
@@ -1478,7 +1478,7 @@ _STATUS_META = {
     "pass_set":     ("🚫 Пропуск выставлен",          "#d97f2e"),
     "handled":      ("✅ Обработано",                  "#3aa84b"),
     "skipped":      ("⚪ Пропущено",                  "#888888"),
-    "resolved":     ("🟢 Исправлено самостоятельно",   "#22c55e"),
+    "resolved":     ("✅ Обработано",                  "#3aa84b"),   # legacy → same as handled
 }
 _STATUS_PILL = {
     "open":         "pill pill-open",
@@ -1486,7 +1486,7 @@ _STATUS_PILL = {
     "pass_set":     "pill pill-pass",
     "handled":      "pill pill-handled",
     "skipped":      "pill pill-skipped",
-    "resolved":     "pill pill-handled",
+    "resolved":     "pill pill-handled",   # legacy alias
 }
 _STATUS_FILTER_MAP = {
     "🔴 Открыто":                   "open",
@@ -1494,7 +1494,6 @@ _STATUS_FILTER_MAP = {
     "🚫 Пропуск выставлен":         "pass_set",
     "✅ Обработано":                 "handled",
     "⚪ Пропущено":                 "skipped",
-    "🟢 Исправлено самостоятельно":  "resolved",
 }
 
 with tab4:
@@ -1632,15 +1631,12 @@ with tab4:
             from collections import Counter as _HCnt
             _hcnt     = _HCnt(r["status"] for r in filtered)
             open_n    = _hcnt.get("open", 0)
-            handled_n = _hcnt.get("handled", 0) + _hcnt.get("pass_set", 0) + _hcnt.get("message_sent", 0)
-            resolved_n_h = _hcnt.get("resolved", 0)
+            handled_n = sum(_hcnt.get(s, 0) for s in ("handled", "resolved", "pass_set", "message_sent"))
             header    = f"📅 {pf_str} — {pt_str}  ·  {len(filtered)} записей"
             if open_n:
                 header += f"  ·  🔴 {open_n} открытых"
             if handled_n:
                 header += f"  ·  ✅ {handled_n} обработано"
-            if resolved_n_h:
-                header += f"  ·  🟢 {resolved_n_h} исправлено"
 
             with st.expander(header, expanded=(open_n > 0)):
 
@@ -1871,19 +1867,17 @@ with tab5:
         _processed_statuses = {"handled", "pass_set", "message_sent", "resolved"}
         total_rec    = len(sr)
         processed_n  = sum(_sr_status_cnt.get(s, 0) for s in _processed_statuses)
-        resolved_n   = _sr_status_cnt.get("resolved", 0)
         messages_n   = _sr_status_cnt.get("message_sent", 0)
         open_n       = _sr_status_cnt.get("open", 0)
         skipped_n    = _sr_status_cnt.get("skipped", 0)
         teachers_n   = len(_sr_teachers)
 
-        m1, m2, m3, m4, m5, m6 = st.columns(6)
+        m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("📋 Всего ошибок",            total_rec)
         m2.metric("✅ Обработано",               processed_n)
-        m3.metric("🟢 Исправлено самост.",       resolved_n)
-        m4.metric("💬 Сообщений отправлено",     messages_n)
-        m5.metric("🔴 Не обработано",            open_n)
-        m6.metric("👩‍🏫 Преподавателей",          teachers_n)
+        m3.metric("💬 Сообщений отправлено",     messages_n)
+        m4.metric("🔴 Не обработано",            open_n)
+        m5.metric("👩‍🏫 Преподавателей",          teachers_n)
 
         st.divider()
 
@@ -1934,9 +1928,8 @@ with tab5:
         with col_sum:
             st.markdown("**Сводка по статусам**")
             summary_rows = [
-                {"Статус": "✅ Обработано",                 "Кол-во": _sr_status_cnt.get("handled", 0)},
-                {"Статус": "🟢 Исправлено самостоятельно",  "Кол-во": _sr_status_cnt.get("resolved", 0)},
-                {"Статус": "💬 Сообщение отправлено",        "Кол-во": _sr_status_cnt.get("message_sent", 0)},
+                {"Статус": "✅ Обработано",            "Кол-во": _sr_status_cnt.get("handled", 0) + _sr_status_cnt.get("resolved", 0)},
+                {"Статус": "💬 Сообщение отправлено",  "Кол-во": _sr_status_cnt.get("message_sent", 0)},
                 {"Статус": "🚫 Пропуск выставлен",          "Кол-во": _sr_status_cnt.get("pass_set", 0)},
                 {"Статус": "🔴 Открыто",                    "Кол-во": _sr_status_cnt.get("open", 0)},
                 {"Статус": "⚪ Пропущено",                  "Кол-во": _sr_status_cnt.get("skipped", 0)},
