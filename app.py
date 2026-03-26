@@ -1148,7 +1148,8 @@ with _gear_col:
                                           value=int(cfg.get("reminder_days", 1)), key="cfg_rdays")
 
         st.markdown("**👤 Проверяющий**")
-        reviewer_name = st.text_input("Имя", value=cfg.get("reviewer_name", "Артём"), key="cfg_reviewer")
+        _default_reviewer = st.session_state.get("billyboba_user") or cfg.get("reviewer_name", "Артём")
+        reviewer_name = st.text_input("Имя", value=_default_reviewer, key="cfg_reviewer")
 
         with st.expander("📊 Google Таблица (необязательно)"):
             sheet_id   = st.text_input("ID таблицы",  value=cfg.get("sheet_id", ""),    key="cfg_sheet_id")
