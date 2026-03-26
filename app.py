@@ -378,17 +378,22 @@ def load_history() -> list:
             pass
     return []
 
+_last_save_error: str = ""   # module-level for debug display
+
 def save_history(records: list):
+    global _last_save_error
+    _last_save_error = ""
     # 1. Supabase (primary) — upsert by id
     sb, _ = _get_supabase_client()
     if sb is not None:
         try:
             rows = [_hist_dict_to_sb_row(r) for r in records]
             if rows:
-                sb.table("history").upsert(rows, on_conflict="id").execute()
+                # supabase-py v1 and v2 compatible upsert
+                sb.table("history").upsert(rows).execute()
             return
-        except Exception:
-            pass
+        except Exception as _e:
+            _last_save_error = str(_e)
     # 2. Google Sheets (fallback)
     ws, _ = _get_history_sheet()
     if ws is not None:
@@ -1271,6 +1276,8 @@ with _gear_col:
         _sb, _sb_err = _get_supabase_client()
         if _sb is not None:
             st.caption("✅ Supabase подключён")
+            if _last_save_error:
+                st.error(f"⚠️ Последняя ошибка записи: `{_last_save_error}`")
             # Export JSON download
             _all_hist_export = load_history()
             if _all_hist_export:
