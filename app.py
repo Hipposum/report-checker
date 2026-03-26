@@ -987,9 +987,7 @@ def _show_welcome():
     [data-testid="collapsedControl"], [data-testid="stSidebar"] {{ display:none!important; }}
     .block-container {{
         padding: 0 !important; max-width: 100% !important;
-        min-height: 100vh;
-        display: flex; flex-direction: column;
-        align-items: center; justify-content: center;
+        overflow: hidden;
     }}
 
     {night_stars}
@@ -1014,9 +1012,12 @@ def _show_welcome():
         50%      {{ transform:translate(-50%,-50%) scale(1.25); opacity:1; }}
     }}
 
-    /* card */
+    /* card — fixed center */
     .wb-card {{
-        position: relative; z-index: 10;
+        position: fixed;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -58%);
+        z-index: 10;
         text-align: center;
         padding: 3rem 3.5rem 2.5rem;
         background: {card_bg};
@@ -1029,8 +1030,8 @@ def _show_welcome():
         max-width: 520px; width: 88vw;
     }}
     @keyframes wb-card-in {{
-        0%   {{ transform: translateY(50px) scale(.93); opacity:0; }}
-        100% {{ transform: translateY(0)    scale(1);   opacity:1; }}
+        0%   {{ transform: translate(-50%, calc(-58% + 50px)) scale(.93); opacity:0; }}
+        100% {{ transform: translate(-50%, -58%) scale(1); opacity:1; }}
     }}
 
     .wb-emoji   {{ font-size:3.6rem; display:block; margin-bottom:.4rem;
@@ -1059,9 +1060,17 @@ def _show_welcome():
         100% {{ transform:translateY(0);    opacity:1; }}
     }}
 
-    /* user buttons */
-    .wb-btns    {{ animation: wb-fade-up .7s ease .65s both; }}
-    .wb-btns .stButton button {{
+    /* buttons — fixed, below card center */
+    [data-testid="stHorizontalBlock"] {{
+        position: fixed !important;
+        top: 50% !important; left: 50% !important;
+        transform: translate(-50%, 80px) !important;
+        width: 480px !important; max-width: 88vw !important;
+        z-index: 101 !important;
+        animation: wb-fade-up .7s ease .65s both;
+        gap: 12px !important;
+    }}
+    [data-testid="stHorizontalBlock"] .stButton button {{
         padding: 1.1rem 1.6rem !important;
         font-size: 1.05rem !important; font-weight: 700 !important;
         border-radius: 16px !important;
@@ -1072,15 +1081,15 @@ def _show_welcome():
         transition: all .3s cubic-bezier(.34,1.56,.64,1) !important;
         box-shadow: 0 8px 28px rgba(0,0,0,.25) !important;
         letter-spacing: .3px !important;
-        width: 100%;
+        width: 100% !important;
     }}
-    .wb-btns .stButton button:hover {{
+    [data-testid="stHorizontalBlock"] .stButton button:hover {{
         background: rgba(255,255,255,.2)  !important;
         border-color: rgba(255,255,255,.55) !important;
         transform: translateY(-5px) scale(1.04) !important;
         box-shadow: 0 22px 56px rgba(0,0,0,.35) !important;
     }}
-    .wb-btns .stButton button:active {{
+    [data-testid="stHorizontalBlock"] .stButton button:active {{
         transform: translateY(0) scale(.97) !important;
     }}
     </style>
@@ -1097,17 +1106,13 @@ def _show_welcome():
     </div>
     """, unsafe_allow_html=True)
 
-    _, _mid, _ = st.columns([1, 2, 1])
-    with _mid:
-        st.markdown('<div class="wb-btns">', unsafe_allow_html=True)
-        _u1, _u2 = st.columns(2)
-        if _u1.button("🌸  Дарья", key="wb_darya", use_container_width=True):
-            st.session_state["billyboba_user"] = "Дарья"
-            st.rerun()
-        if _u2.button("⚡  Артём", key="wb_artem", use_container_width=True):
-            st.session_state["billyboba_user"] = "Артём"
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+    _u1, _u2 = st.columns(2)
+    if _u1.button("🌸  Дарья", key="wb_darya", use_container_width=True):
+        st.session_state["billyboba_user"] = "Дарья"
+        st.rerun()
+    if _u2.button("⚡  Артём", key="wb_artem", use_container_width=True):
+        st.session_state["billyboba_user"] = "Артём"
+        st.rerun()
 
     st.stop()
 
