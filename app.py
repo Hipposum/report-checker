@@ -271,6 +271,15 @@ def _get_history_sheet():
 
 # ── Supabase (primary history backend) ───────────────────────────────────────
 
+def _read_secret(key: str) -> str:
+    """Read a secret safely from st.secrets or config."""
+    try:
+        val = st.secrets[key]
+        return str(val) if val else ""
+    except Exception:
+        pass
+    return load_config().get(key, "")
+
 @st.cache_resource(show_spinner=False)
 def _get_supabase_client():
     """Cached Supabase client. Returns (client, error_str)."""
@@ -279,12 +288,15 @@ def _get_supabase_client():
     except ImportError as e:
         return None, f"Пакет supabase не установлен: {e}"
     try:
-        _url = (st.secrets.get("supabase_url", "") or
-                load_config().get("supabase_url", ""))
-        _key = (st.secrets.get("supabase_key", "") or
-                load_config().get("supabase_key", ""))
+        _url = _read_secret("supabase_url")
+        _key = _read_secret("supabase_key")
         if not _url:
-            return None, "supabase_url не найден в Secrets"
+            # show what keys ARE visible for debugging
+            try:
+                _visible = list(st.secrets.keys())
+            except Exception:
+                _visible = []
+            return None, f"supabase_url не найден. Видимые ключи в Secrets: {_visible}"
         if not _key:
             return None, "supabase_key не найден в Secrets"
         client = _sb_create(_url, _key)
