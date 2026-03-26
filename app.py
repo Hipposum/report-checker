@@ -1223,6 +1223,11 @@ if not st.session_state.get("billyboba_user"):
 #  HEADER — title + dates + settings popover
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Sensitive credentials — read from Secrets only (not editable in UI)
+subdomain    = _read_secret("subdomain")    or cfg.get("subdomain", "matrix")
+api_key      = _read_secret("api_key")      or cfg.get("api_key", "")
+pachca_token = _read_secret("pachca_token") or cfg.get("pachca_token", "")
+
 _title_col, _dates_col, _gear_col = st.columns([4, 2.5, 0.7])
 
 with _title_col:
@@ -1241,11 +1246,12 @@ with _gear_col:
         st.markdown("### ⚙️ Настройки")
 
         st.markdown("**🏫 HolliHop**")
-        subdomain = st.text_input("Субдомен", value=cfg.get("subdomain", "matrix"), key="cfg_subdomain")
-        api_key   = st.text_input("API ключ",  value=cfg.get("api_key", ""), type="password", key="cfg_api_key")
+        st.caption(f"Субдомен: `{subdomain}.t8s.ru`  •  API ключ: {'✅' if api_key else '⚠️ не задан'}")
+        st.caption("Задаются в Streamlit Secrets: `subdomain`, `api_key`")
 
         st.markdown("**📨 Пачка**")
-        pachca_token    = st.text_input("Токен Пачки", value=cfg.get("pachca_token", ""), type="password", key="cfg_pachca")
+        st.caption(f"Токен Пачки: {'✅ задан' if pachca_token else '⚠️ не задан'}")
+        st.caption("Задаётся в Streamlit Secrets: `pachca_token`")
         create_reminder = st.checkbox("Создавать напоминания", value=cfg.get("create_reminder", False), key="cfg_reminder")
         reminder_days   = st.number_input("Дней до дедлайна", min_value=1, max_value=14,
                                           value=int(cfg.get("reminder_days", 1)), key="cfg_rdays")
@@ -1355,8 +1361,7 @@ supabase_key = "eyJ..."
         else:
             if st.button("💾 Сохранить", use_container_width=True, key="cfg_save"):
                 save_config({
-                    "subdomain": subdomain, "api_key": api_key,
-                    "pachca_token": pachca_token, "create_reminder": create_reminder,
+                    "create_reminder": create_reminder,
                     "reminder_days": reminder_days, "sheet_id": sheet_id,
                     "sheet_name": sheet_name, "reviewer_name": reviewer_name,
                     "creds_json": creds_json,
