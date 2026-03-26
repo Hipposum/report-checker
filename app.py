@@ -2346,6 +2346,8 @@ def _is_open(r):
     return r["status"] == "open"
 
 with tab5:
+    import plotly.express as px
+
     _s_hdr, _s_refresh = st.columns([5, 1])
     _s_hdr.subheader("📊 Статистика по проверкам")
     if _s_refresh.button("🔄 Обновить", key="stat_refresh", use_container_width=True):
@@ -2362,41 +2364,19 @@ with tab5:
             key=lambda x: x[0], reverse=True,
         )
 
-        _fmode_col, _fp1_col, _fp2_col, _ftype_col = st.columns([1.5, 1.5, 1.5, 1.5])
-        with _fmode_col:
-            filter_mode = st.radio(
-                "Режим фильтра",
-                ["Готовые периоды", "Произвольный диапазон"],
-                horizontal=True,
-                key="stat_filter_mode",
-                label_visibility="collapsed",
-            )
+        _fp1_col, _fp2_col, _ftype_col, _frole_col = st.columns([1.5, 1.5, 1.5, 1.5])
 
-        if filter_mode == "Готовые периоды":
-            period_labels = ["Все периоды"] + [
-                f"{fmt_date(pf)} — {fmt_date(pt)}" for pf, pt in all_stat_periods
-            ]
-            with _fp1_col:
-                sel_period = st.selectbox("Выберите период", period_labels, key="stat_period_sel",
-                                          label_visibility="collapsed")
-            if sel_period == "Все периоды":
-                sr = stat_records
-            else:
-                pidx = period_labels.index(sel_period) - 1
-                pf0, pt0 = all_stat_periods[pidx]
-                sr = [r for r in stat_records if r["period_from"] == pf0 and r["period_to"] == pt0]
-        else:
-            _hist_dates = sorted(r["date"] for r in stat_records)
-            _min_d = datetime.strptime(_hist_dates[0], "%Y-%m-%d").date() if _hist_dates else date.today() - timedelta(days=30)
-            _max_d = datetime.strptime(_hist_dates[-1], "%Y-%m-%d").date() if _hist_dates else date.today()
-            with _fp1_col:
-                custom_from = st.date_input("С", value=_min_d, key="stat_custom_from")
-            with _fp2_col:
-                custom_to   = st.date_input("По", value=_max_d, key="stat_custom_to")
-            _cf = custom_from.strftime("%Y-%m-%d")
-            _ct = custom_to.strftime("%Y-%m-%d")
-            sr = [r for r in stat_records if _cf <= r["date"] <= _ct]
-            sel_period = "custom"
+        # ── Date range filter (arbitrary only) ────────────────────────────────
+        _hist_dates = sorted(r["date"] for r in stat_records)
+        _min_d = datetime.strptime(_hist_dates[0], "%Y-%m-%d").date() if _hist_dates else date.today() - timedelta(days=30)
+        _max_d = datetime.strptime(_hist_dates[-1], "%Y-%m-%d").date() if _hist_dates else date.today()
+        with _fp1_col:
+            custom_from = st.date_input("С", value=_min_d, key="stat_custom_from")
+        with _fp2_col:
+            custom_to   = st.date_input("По", value=_max_d, key="stat_custom_to")
+        _cf = custom_from.strftime("%Y-%m-%d")
+        _ct = custom_to.strftime("%Y-%m-%d")
+        sr = [r for r in stat_records if _cf <= r["date"] <= _ct]
 
         # ── Error type filter ─────────────────────────────────────────────────
         with _ftype_col:
@@ -2410,6 +2390,19 @@ with tab5:
             sr = [r for r in sr if r.get("error_type") == "no_report"]
         elif _err_type_opt == "💬 Нет комментария":
             sr = [r for r in sr if r.get("error_type") == "no_abs_comment"]
+
+        # ── Intern / teacher role filter ──────────────────────────────────────
+        with _frole_col:
+            _role_opt = st.selectbox(
+                "Категория",
+                ["Все", "Только преподаватели", "Только стажёры"],
+                key="stat_role_filter",
+                label_visibility="collapsed",
+            )
+        if _role_opt == "Только преподаватели":
+            sr = [r for r in sr if not _teacher_info.get(r["teacher"], {}).get("is_intern", False)]
+        elif _role_opt == "Только стажёры":
+            sr = [r for r in sr if _teacher_info.get(r["teacher"], {}).get("is_intern", False)]
 
         # ── Single pass: group by teacher + count statuses ───────────────────
         from collections import Counter as _Counter, defaultdict as _dd
@@ -2503,8 +2496,180 @@ with tab5:
                 hide_index=True,
             )
 
-        # ── Per-period dynamics (shown when "All periods" selected) ───────────
-        if sel_period in ("Все периоды", "custom") and len(all_stat_periods) > 1:
+        # ── Charts ────────────────────────────────────────────────────────────
+        _STATUS_COLORS = {
+            "open":         "#ef4444",
+            "handled":      "#22c55e",
+            "resolved":     "#22c55e",
+            "in_progress":  "#f59e0b",
+            "message_sent": "#f59e0b",
+            "pass_set":     "#f59e0b",
+            "skipped":      "#6b7280",
+        }
+        _CHART_TEMPLATE = "plotly_dark"
+
+        if sr:
+            st.divider()
+
+            # ── Row 1: bar chart by teacher + pie chart by status ─────────────
+            _ch1, _ch2 = st.columns([2, 1])
+
+            with _ch1:
+                # Build data: top-N teachers by total errors, stacked by status
+                _top_n = 20
+                _teacher_totals = {t: len(recs) for t, recs in _sr_by_teacher.items()}
+                _top_teachers = sorted(_teacher_totals, key=lambda t: _teacher_totals[t], reverse=True)[:_top_n]
+
+                _bar_rows = []
+                for _t in _top_teachers:
+                    _t_cnt = _Counter(r["status"] for r in _sr_by_teacher[_t])
+                    for _st, _n in _t_cnt.items():
+                        if _n > 0:
+                            _bar_rows.append({
+                                "Преподаватель": _t,
+                                "Статус": _st,
+                                "Кол-во": _n,
+                            })
+
+                _STATUS_LABEL = {
+                    "open": "Открыто",
+                    "handled": "Исправлено",
+                    "resolved": "Исправлено",
+                    "message_sent": "В работе",
+                    "pass_set": "В работе",
+                    "skipped": "Пропущено",
+                }
+                if _bar_rows:
+                    _df_bar = pd.DataFrame(_bar_rows)
+                    _df_bar["Категория"] = _df_bar["Статус"].map(
+                        lambda s: _STATUS_LABEL.get(s, s)
+                    )
+                    _df_bar_agg = (
+                        _df_bar.groupby(["Преподаватель", "Категория"])["Кол-во"]
+                        .sum()
+                        .reset_index()
+                    )
+                    _cat_order = ["Открыто", "В работе", "Исправлено", "Пропущено"]
+                    _cat_colors = {
+                        "Открыто":    "#ef4444",
+                        "В работе":   "#f59e0b",
+                        "Исправлено": "#22c55e",
+                        "Пропущено":  "#6b7280",
+                    }
+                    _fig_bar = px.bar(
+                        _df_bar_agg,
+                        x="Кол-во",
+                        y="Преподаватель",
+                        color="Категория",
+                        orientation="h",
+                        title="Ошибки по преподавателям",
+                        template=_CHART_TEMPLATE,
+                        color_discrete_map=_cat_colors,
+                        category_orders={
+                            "Категория": _cat_order,
+                            "Преподаватель": _top_teachers[::-1],
+                        },
+                    )
+                    _fig_bar.update_layout(
+                        margin=dict(l=0, r=0, t=40, b=0),
+                        legend_title_text="",
+                        xaxis_showgrid=False,
+                        yaxis_showgrid=False,
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        height=max(300, len(_top_teachers) * 28),
+                    )
+                    st.plotly_chart(_fig_bar, use_container_width=True)
+
+            with _ch2:
+                # Pie/donut: distribution by status category
+                _pie_data = {
+                    "Исправлено": processed_n,
+                    "В работе":   in_progress_n,
+                    "Открыто":    open_n,
+                    "Пропущено":  _sr_status_cnt.get("skipped", 0),
+                }
+                _pie_data = {k: v for k, v in _pie_data.items() if v > 0}
+                if _pie_data:
+                    _pie_colors = {
+                        "Исправлено": "#22c55e",
+                        "В работе":   "#f59e0b",
+                        "Открыто":    "#ef4444",
+                        "Пропущено":  "#6b7280",
+                    }
+                    _fig_pie = px.pie(
+                        names=list(_pie_data.keys()),
+                        values=list(_pie_data.values()),
+                        title="Распределение по статусам",
+                        template=_CHART_TEMPLATE,
+                        color=list(_pie_data.keys()),
+                        color_discrete_map=_pie_colors,
+                        hole=0.45,
+                    )
+                    _fig_pie.update_traces(textposition="inside", textinfo="percent+label")
+                    _fig_pie.update_layout(
+                        margin=dict(l=0, r=0, t=40, b=0),
+                        showlegend=False,
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        height=300,
+                    )
+                    st.plotly_chart(_fig_pie, use_container_width=True)
+
+            # ── Row 2: errors by lesson date ──────────────────────────────────
+            _date_cnt: dict = _dd(lambda: _Counter())
+            for _r in sr:
+                _date_cnt[_r["date"]][_r["status"]] += 1
+
+            if _date_cnt:
+                _date_rows = []
+                for _d in sorted(_date_cnt.keys()):
+                    _dc = _date_cnt[_d]
+                    _date_rows.append({
+                        "Дата":       _d,
+                        "Открыто":    _dc.get("open", 0),
+                        "В работе":   _dc.get("message_sent", 0) + _dc.get("pass_set", 0),
+                        "Исправлено": _dc.get("handled", 0) + _dc.get("resolved", 0),
+                        "Пропущено":  _dc.get("skipped", 0),
+                    })
+                _df_dates = pd.DataFrame(_date_rows)
+                _df_dates_melted = _df_dates.melt(
+                    id_vars="Дата",
+                    value_vars=["Открыто", "В работе", "Исправлено", "Пропущено"],
+                    var_name="Категория",
+                    value_name="Кол-во",
+                )
+                _df_dates_melted = _df_dates_melted[_df_dates_melted["Кол-во"] > 0]
+                if not _df_dates_melted.empty:
+                    _fig_line = px.bar(
+                        _df_dates_melted,
+                        x="Дата",
+                        y="Кол-во",
+                        color="Категория",
+                        title="Ошибки по датам занятий",
+                        template=_CHART_TEMPLATE,
+                        color_discrete_map={
+                            "Открыто":    "#ef4444",
+                            "В работе":   "#f59e0b",
+                            "Исправлено": "#22c55e",
+                            "Пропущено":  "#6b7280",
+                        },
+                        category_orders={"Категория": ["Открыто", "В работе", "Исправлено", "Пропущено"]},
+                    )
+                    _fig_line.update_layout(
+                        margin=dict(l=0, r=0, t=40, b=0),
+                        legend_title_text="",
+                        xaxis_showgrid=False,
+                        yaxis_showgrid=False,
+                        bargap=0.15,
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        height=320,
+                    )
+                    st.plotly_chart(_fig_line, use_container_width=True)
+
+        # ── Per-period dynamics (always shown when multiple periods exist) ────
+        if len(all_stat_periods) > 1:
             st.divider()
             st.markdown("**📅 Динамика по периодам**")
 
