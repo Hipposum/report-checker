@@ -949,8 +949,8 @@ def _show_welcome():
         x   = _rng.randint(2, 98)
         y   = _rng.randint(2, 98)
         sz  = _rng.randint(3, 14)
-        dur = round(_rng.uniform(5, 14), 1)
-        dly = round(_rng.uniform(0, 8), 1)
+        dur = round(_rng.uniform(2.5, 6.5), 1)
+        dly = round(_rng.uniform(0, 3), 1)
         op  = round(_rng.uniform(0.08, 0.22), 2)
         particles_css += f"""
         .wb-p{i} {{
@@ -1012,14 +1012,14 @@ def _show_welcome():
         50%      {{ transform:translate(-50%,-50%) scale(1.25); opacity:1; }}
     }}
 
-    /* card — fixed center */
+    /* card — fixed center, slightly above middle */
     .wb-card {{
         position: fixed;
         top: 50%; left: 50%;
-        transform: translate(-50%, -58%);
+        transform: translate(-50%, -65%);
         z-index: 10;
         text-align: center;
-        padding: 3rem 3.5rem 2.5rem;
+        padding: 3rem 3.5rem 2.8rem;
         background: {card_bg};
         backdrop-filter: blur(48px); -webkit-backdrop-filter: blur(48px);
         border: 1px solid {card_bdr};
@@ -1027,11 +1027,23 @@ def _show_welcome():
         box-shadow: 0 40px 100px rgba(0,0,0,0.45),
                     inset 0 1px 0 rgba(255,255,255,0.15);
         animation: wb-card-in 0.9s cubic-bezier(0.34,1.56,0.64,1) both;
-        max-width: 520px; width: 88vw;
+        max-width: 480px; width: 86vw;
     }}
     @keyframes wb-card-in {{
-        0%   {{ transform: translate(-50%, calc(-58% + 50px)) scale(.93); opacity:0; }}
-        100% {{ transform: translate(-50%, -58%) scale(1); opacity:1; }}
+        0%   {{ transform: translate(-50%, calc(-65% + 50px)) scale(.93); opacity:0; }}
+        100% {{ transform: translate(-50%, -65%) scale(1); opacity:1; }}
+    }}
+
+    /* label above buttons */
+    .wb-label-outer {{
+        position: fixed;
+        top: 50%; left: 50%;
+        transform: translate(-50%, 100px);
+        z-index: 11;
+        font-size: .76rem; color: rgba(255,255,255,.5);
+        text-transform: uppercase; letter-spacing: 2.5px; font-weight: 600;
+        white-space: nowrap;
+        animation: wb-fade-up .7s ease .55s both;
     }}
 
     .wb-emoji   {{ font-size:3.6rem; display:block; margin-bottom:.4rem;
@@ -1050,22 +1062,19 @@ def _show_welcome():
                    letter-spacing:.4px; margin:0 0 2.2rem;
                    animation: wb-fade-up .7s ease .45s both; }}
 
-    .wb-label   {{ font-size:.78rem; color:rgba(255,255,255,.45);
-                   text-transform:uppercase; letter-spacing:2.5px;
-                   font-weight:600; margin:0 0 1.2rem;
-                   animation: wb-fade-up .7s ease .55s both; }}
+    .wb-label   {{ display: none; }}
 
     @keyframes wb-fade-up {{
         0%   {{ transform:translateY(18px); opacity:0; }}
         100% {{ transform:translateY(0);    opacity:1; }}
     }}
 
-    /* buttons — fixed, below card center */
+    /* buttons — fixed, clearly below card */
     [data-testid="stHorizontalBlock"] {{
         position: fixed !important;
         top: 50% !important; left: 50% !important;
-        transform: translate(-50%, 80px) !important;
-        width: 480px !important; max-width: 88vw !important;
+        transform: translate(-50%, 135px) !important;
+        width: 460px !important; max-width: 86vw !important;
         z-index: 101 !important;
         animation: wb-fade-up .7s ease .65s both;
         gap: 12px !important;
@@ -1102,8 +1111,8 @@ def _show_welcome():
         <span class="wb-emoji">{emoji}</span>
         <h1 class="wb-brand">Биллибоба</h1>
         <p class="wb-greet">{greeting}&nbsp; 👋</p>
-        <p class="wb-label">Под чьим именем хотите войти?</p>
     </div>
+    <div class="wb-label-outer">Под чьим именем хотите войти?</div>
     """, unsafe_allow_html=True)
 
     _u1, _u2 = st.columns(2)
