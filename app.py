@@ -211,23 +211,18 @@ def save_history(records: list):
 
 
 def upsert_history(all_errors: list, period_from: str, period_to: str, reviewer: str):
-    """Add/update history records for a check run. Preserves existing status/comments."""
+    """Add/update history records. Global dedup by (teacher, date, error_type) — no duplicates across periods."""
     import uuid as _uuid
     records = load_history()
     now = datetime.now().isoformat(timespec="seconds")
 
-    # Index existing records for this period
-    existing = {
-        (r["teacher"], r["date"], r["error_type"]): r
-        for r in records
-        if r["period_from"] == period_from and r["period_to"] == period_to
-    }
+    # Global index — one record per (teacher, date, error_type) regardless of check period
+    existing = {(r["teacher"], r["date"], r["error_type"]): r for r in records}
 
-    other = [r for r in records if not (r["period_from"] == period_from and r["period_to"] == period_to)]
+    result = {}   # will become the new full history
 
-    updated = []
+    # Process current errors
     current_keys = set()
-
     for e in all_errors:
         key = (e["teacher"], e["date"], e["error_type"])
         current_keys.add(key)
@@ -251,39 +246,41 @@ def upsert_history(all_errors: list, period_from: str, period_to: str, reviewer:
                 "reviewer_comment":  "",
                 "updated_at":        now,
             }
-        updated.append(rec)
+        result[key] = rec
 
-    # Records that existed before but are no longer errors = teacher fixed it themselves
+    # Carry over all records outside current check; auto-close those inside that disappeared
     for key, rec in existing.items():
-        if key not in current_keys:
+        if key in result:
+            continue   # already handled above
+        if period_from <= rec["date"] <= period_to:
+            # Was in range but error gone — teacher fixed it
             rec = rec.copy()
-            # Auto-resolve if still open or reminder was sent but teacher fixed it
             if rec["status"] in ("open", "message_sent", "pass_set"):
                 rec.update({"status": "handled", "updated_at": now})
-            updated.append(rec)
+        result[key] = rec
 
-    save_history(other + updated)
+    save_history(list(result.values()))
 
 
 def update_history_sent(period_from: str, period_to: str, teachers_sent: set, reviewer: str):
-    """Mark no_report records as message_sent for the given teachers."""
+    """Mark no_report records as message_sent for teachers within the checked date range."""
     records = load_history()
     now = datetime.now().isoformat(timespec="seconds")
     for rec in records:
-        if (rec["period_from"] == period_from and rec["period_to"] == period_to
+        if (period_from <= rec["date"] <= period_to
                 and rec["error_type"] == "no_report"
                 and rec["teacher"] in teachers_sent
-                and rec["status"] in ("open",)):
+                and rec["status"] == "open"):
             rec.update({"status": "message_sent", "reviewer": reviewer, "updated_at": now})
     save_history(records)
 
 
 def update_history_passes(period_from: str, period_to: str, reviewer: str):
-    """Mark open/sent no_report records as pass_set for the given period."""
+    """Mark open/sent no_report records as pass_set within the checked date range."""
     records = load_history()
     now = datetime.now().isoformat(timespec="seconds")
     for rec in records:
-        if (rec["period_from"] == period_from and rec["period_to"] == period_to
+        if (period_from <= rec["date"] <= period_to
                 and rec["error_type"] == "no_report"
                 and rec["status"] in ("open", "message_sent")):
             rec.update({"status": "pass_set", "reviewer": reviewer, "updated_at": now})
@@ -1592,54 +1589,57 @@ with tab4:
 
         st.divider()
 
-        # ── Группируем по периоду ─────────────────────────────────────────────
-        from collections import OrderedDict as _OD
-
-        def _period_sort_key(pf_pt):
-            try:
-                return datetime.strptime(pf_pt[0], "%Y-%m-%d")
-            except Exception:
-                return datetime.min
-
-        periods_dict = _OD()
-        for r in history_records:
-            pk = (r["period_from"], r["period_to"])
-            periods_dict.setdefault(pk, []).append(r)
-
-        # Sort periods newest first
-        sorted_periods = sorted(periods_dict.items(), key=lambda x: _period_sort_key(x[0]), reverse=True)
-
+        # ── Фильтр по дате занятия ────────────────────────────────────────────
         _ERR_FILTER_MAP = {
-            "Нет отчёта":                    "no_report",
-            "Нет комментария к пропуску":    "no_abs_comment",
+            "Нет отчёта":                 "no_report",
+            "Нет комментария к пропуску": "no_abs_comment",
         }
+        _all_dates = sorted({r["date"] for r in history_records if r.get("date")})
+        if _all_dates:
+            _hd_min = datetime.strptime(_all_dates[0],  "%Y-%m-%d").date()
+            _hd_max = datetime.strptime(_all_dates[-1], "%Y-%m-%d").date()
+        else:
+            _hd_min = _hd_max = date.today()
 
-        for (pf, pt), recs in sorted_periods:
-            # Apply all filters in a single pass
-            _f_status_val  = _STATUS_FILTER_MAP.get(f_status)
-            _f_error_val   = _ERR_FILTER_MAP.get(f_error)
-            filtered = [
-                r for r in recs
-                if (f_teacher == "Все" or r["teacher"] == f_teacher)
-                and (f_status  == "Все" or r["status"]     == _f_status_val)
-                and (f_error   == "Все" or r["error_type"] == _f_error_val)
-            ]
-            if not filtered:
-                continue
+        fd1, fd2 = st.columns(2)
+        with fd1:
+            _h_date_from = st.date_input("Дата занятия с", value=_hd_min,
+                                         min_value=_hd_min, max_value=_hd_max, key="hf_date_from")
+        with fd2:
+            _h_date_to   = st.date_input("по",             value=_hd_max,
+                                         min_value=_hd_min, max_value=_hd_max, key="hf_date_to")
+        _hdf = _h_date_from.strftime("%Y-%m-%d")
+        _hdt = _h_date_to.strftime("%Y-%m-%d")
 
-            # Period header
+        # ── Применяем все фильтры одним проходом ──────────────────────────────
+        _f_status_val = _STATUS_FILTER_MAP.get(f_status)
+        _f_error_val  = _ERR_FILTER_MAP.get(f_error)
+        all_filtered = [
+            r for r in history_records
+            if (f_teacher == "Все" or r["teacher"] == f_teacher)
+            and (f_status  == "Все" or r["status"]     == _f_status_val)
+            and (f_error   == "Все" or r["error_type"] == _f_error_val)
+            and _hdf <= r.get("date", "") <= _hdt
+        ]
+
+        # ── Группируем по дате занятия (новые сверху) ─────────────────────────
+        from collections import defaultdict as _hdd, Counter as _HCnt
+        _by_date: dict = _hdd(list)
+        for r in all_filtered:
+            _by_date[r.get("date", "")].append(r)
+
+        for lesson_date in sorted(_by_date.keys(), reverse=True):
+            recs_for_date = _by_date[lesson_date]
             try:
-                pf_str = datetime.strptime(pf, "%Y-%m-%d").strftime("%d.%m")
-                pt_str = datetime.strptime(pt, "%Y-%m-%d").strftime("%d.%m.%Y")
+                date_label = datetime.strptime(lesson_date, "%Y-%m-%d").strftime("%d.%m.%Y")
             except Exception:
-                pf_str, pt_str = pf, pt
+                date_label = lesson_date
 
-            from collections import Counter as _HCnt
-            _hcnt      = _HCnt(r["status"] for r in filtered)
-            open_n     = _hcnt.get("open", 0)
-            wip_n      = sum(_hcnt.get(s, 0) for s in ("message_sent", "pass_set"))
-            handled_n  = sum(_hcnt.get(s, 0) for s in ("handled", "resolved"))
-            header     = f"📅 {pf_str} — {pt_str}  ·  {len(filtered)} записей"
+            _hcnt     = _HCnt(r["status"] for r in recs_for_date)
+            open_n    = _hcnt.get("open", 0)
+            wip_n     = sum(_hcnt.get(s, 0) for s in ("message_sent", "pass_set"))
+            handled_n = sum(_hcnt.get(s, 0) for s in ("handled", "resolved"))
+            header    = f"📅 {date_label}  ·  {len(recs_for_date)} записей"
             if open_n:
                 header += f"  ·  🔴 {open_n} открытых"
             if wip_n:
@@ -1648,42 +1648,39 @@ with tab4:
                 header += f"  ·  ✅ {handled_n} исправлено"
 
             with st.expander(header, expanded=(open_n > 0)):
-
-                # Per-period mini bulk bar
-                _period_ids        = {r["id"] for r in filtered}
-                _period_action_ids = {r["id"] for r in filtered if r["status"] in _actionable_statuses}
-                _period_close_ids  = {r["id"] for r in filtered if r["status"] in _closeable_statuses}
-                _pb1, _pb2, _pb3, _pb4, _pb5 = st.columns([1.2, 1.2, 1.4, 1.4, 4])
-                if _pb1.button("☑️ Все", key=f"psel_{pf}_{pt}", use_container_width=True):
-                    for rid in _period_ids:
+                _date_ids        = {r["id"] for r in recs_for_date}
+                _date_action_ids = {r["id"] for r in recs_for_date if r["status"] in _actionable_statuses}
+                _date_close_ids  = {r["id"] for r in recs_for_date if r["status"] in _closeable_statuses}
+                _pb1, _pb2, _pb3, _pb4, _ = st.columns([1.2, 1.2, 1.6, 1.6, 4])
+                if _pb1.button("☑️ Все", key=f"dsel_{lesson_date}", use_container_width=True):
+                    for rid in _date_ids:
                         st.session_state[f"hsel_{rid}"] = True
                     st.rerun()
-                if _pb2.button("⬜ Снять", key=f"pdes_{pf}_{pt}", use_container_width=True):
-                    for rid in _period_ids:
+                if _pb2.button("⬜ Снять", key=f"ddes_{lesson_date}", use_container_width=True):
+                    for rid in _date_ids:
                         st.session_state[f"hsel_{rid}"] = False
                     st.rerun()
-                _p_sel_open   = sum(1 for rid in _period_action_ids if st.session_state.get(f"hsel_{rid}", False))
-                _p_sel_closed = sum(1 for rid in _period_close_ids  if st.session_state.get(f"hsel_{rid}", False))
-                if _p_sel_open > 0:
-                    if _pb3.button(f"✅ Обработано ({_p_sel_open})", key=f"ph_{pf}_{pt}",
+                _d_sel_open   = sum(1 for rid in _date_action_ids if st.session_state.get(f"hsel_{rid}", False))
+                _d_sel_closed = sum(1 for rid in _date_close_ids  if st.session_state.get(f"hsel_{rid}", False))
+                if _d_sel_open > 0:
+                    if _pb3.button(f"✅ Обработано ({_d_sel_open})", key=f"dh_{lesson_date}",
                                    use_container_width=True, type="primary"):
-                        for r in filtered:
+                        for r in recs_for_date:
                             if st.session_state.get(f"hsel_{r['id']}", False) and r["status"] in _actionable_statuses:
                                 update_history_record(r["id"], "handled", r.get("reviewer_comment", ""), reviewer_name)
                                 st.session_state[f"hsel_{r['id']}"] = False
                         st.rerun()
-                if _p_sel_closed > 0:
-                    if _pb4.button(f"↺ Переоткрыть ({_p_sel_closed})", key=f"pr_{pf}_{pt}",
+                if _d_sel_closed > 0:
+                    if _pb4.button(f"↺ Переоткрыть ({_d_sel_closed})", key=f"dr_{lesson_date}",
                                    use_container_width=True):
-                        for r in filtered:
+                        for r in recs_for_date:
                             if st.session_state.get(f"hsel_{r['id']}", False) and r["status"] in _closeable_statuses:
                                 update_history_record(r["id"], "open", r.get("reviewer_comment", ""), reviewer_name)
                                 st.session_state[f"hsel_{r['id']}"] = False
                         st.rerun()
-
                 st.divider()
 
-                for rec in sorted(filtered, key=lambda r: (r["teacher"], r["date"])):
+                for rec in sorted(recs_for_date, key=lambda r: r["teacher"]):
                     s_label, s_color = _STATUS_META.get(rec["status"], ("❓", "#888"))
 
                     with st.container(border=True):
@@ -1752,21 +1749,12 @@ with tab4:
 
         # ── Экспорт всей истории ──────────────────────────────────────────────
         st.divider()
-        exp_records = history_records
-        if f_teacher != "Все":
-            exp_records = [r for r in exp_records if r["teacher"] == f_teacher]
-        if f_status != "Все":
-            exp_records = [r for r in exp_records if r["status"] == _STATUS_FILTER_MAP.get(f_status)]
-        if f_error != "Все":
-            exp_records = [r for r in exp_records if r["error_type"] == _ERR_FILTER_MAP.get(f_error)]
-
-        if exp_records:
+        if all_filtered:
             def _fmt_date(d):
                 try: return datetime.strptime(d, "%Y-%m-%d").strftime("%d.%m.%Y")
                 except: return d
 
             export_df = pd.DataFrame([{
-                "Период":         f"{_fmt_date(r['period_from'])} — {_fmt_date(r['period_to'])}",
                 "Дата":           _fmt_date(r["date"]),
                 "Преподаватель":  r["teacher"],
                 "Тег ученика":    r.get("student_tag", "Все"),
@@ -1776,7 +1764,7 @@ with tab4:
                 "Проверяющий":    r.get("reviewer", ""),
                 "Комментарий":    r.get("reviewer_comment", ""),
                 "Обновлено":      r.get("updated_at", ""),
-            } for r in exp_records])
+            } for r in sorted(all_filtered, key=lambda r: r.get("date",""), reverse=True)])
             csv_hist = export_df.to_csv(index=False).encode("utf-8-sig")
             st.download_button(
                 "⬇️ Скачать историю (CSV)",
