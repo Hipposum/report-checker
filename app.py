@@ -273,18 +273,24 @@ def _get_history_sheet():
 
 @st.cache_resource(show_spinner=False)
 def _get_supabase_client():
-    """Cached Supabase client."""
+    """Cached Supabase client. Returns (client, error_str)."""
     try:
         from supabase import create_client as _sb_create
+    except ImportError as e:
+        return None, f"Пакет supabase не установлен: {e}"
+    try:
         _url = (st.secrets.get("supabase_url", "") or
                 load_config().get("supabase_url", ""))
         _key = (st.secrets.get("supabase_key", "") or
                 load_config().get("supabase_key", ""))
-        if not _url or not _key:
-            return None
-        return _sb_create(_url, _key)
-    except Exception:
-        return None
+        if not _url:
+            return None, "supabase_url не найден в Secrets"
+        if not _key:
+            return None, "supabase_key не найден в Secrets"
+        client = _sb_create(_url, _key)
+        return client, None
+    except Exception as e:
+        return None, str(e)
 
 def _hist_dict_to_sb_row(rec: dict) -> dict:
     """Convert history dict to Supabase row (students → JSON string)."""
@@ -334,7 +340,7 @@ def create_history_sheet() -> tuple:
 
 def load_history() -> list:
     # 1. Supabase (primary)
-    sb = _get_supabase_client()
+    sb, _ = _get_supabase_client()
     if sb is not None:
         try:
             res = sb.table("history").select("*").execute()
@@ -362,7 +368,7 @@ def load_history() -> list:
 
 def save_history(records: list):
     # 1. Supabase (primary) — upsert by id
-    sb = _get_supabase_client()
+    sb, _ = _get_supabase_client()
     if sb is not None:
         try:
             rows = [_hist_dict_to_sb_row(r) for r in records]
@@ -1244,7 +1250,7 @@ with _gear_col:
 
         st.divider()
         st.markdown("**🗄️ Supabase (основное хранилище)**")
-        _sb = _get_supabase_client()
+        _sb, _sb_err = _get_supabase_client()
         if _sb is not None:
             st.caption("✅ Supabase подключён")
             # Export JSON download
@@ -1266,7 +1272,7 @@ with _gear_col:
                     _ok, _msg = mirror_to_sheets(load_history())
                 (st.success if _ok else st.error)(f"{'✅' if _ok else '❌'} {_msg}")
         else:
-            st.caption("⚠️ Supabase не настроен")
+            st.caption(f"⚠️ Supabase не подключён: `{_sb_err}`")
             with st.expander("Как подключить Supabase"):
                 st.markdown("""
 1. Зайди на [supabase.com](https://supabase.com) → создай проект (бесплатно)
