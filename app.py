@@ -1389,7 +1389,7 @@ supabase_key = "eyJ..."
             _hist_url = f"https://docs.google.com/spreadsheets/d/{_hist_sid}"
             st.caption(f"[Открыть таблицу]({_hist_url})")
         else:
-            st.caption("⚠️ Sheets не настроен (резервная копия недоступна)")
+            st.caption("⚠️ Sheets не настроен — резервная копия недоступна (основные данные в Supabase)")
             if st.button("➕ Создать таблицу-зеркало", key="create_hist_sheet",
                          use_container_width=True):
                 with st.spinner("Создаю таблицу…"):
@@ -1399,7 +1399,17 @@ supabase_key = "eyJ..."
                         st.code(f'history_sheet_id = "{_new_sid}"', language="toml")
                         st.caption(f"[Открыть таблицу]({_new_url})")
                     except Exception as _ce:
-                        st.error(f"Ошибка: {_ce}")
+                        _ce_str = str(_ce)
+                        if "quota" in _ce_str.lower() or "403" in _ce_str:
+                            st.error(
+                                "❌ Закончилось место на Google Drive сервисного аккаунта.\n\n"
+                                "**Как исправить:** зайди в Google Drive аккаунта, к которому "
+                                "привязан сервисный ключ, и освободи место (удали лишние файлы "
+                                "или перейди на аккаунт с достаточным хранилищем).\n\n"
+                                "История при этом в безопасности — она хранится в Supabase."
+                            )
+                        else:
+                            st.error(f"Ошибка: {_ce}")
 
         st.divider()
         st.markdown("**📋 Данные о преподавателях**")
