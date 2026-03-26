@@ -229,6 +229,8 @@ def upsert_history(all_errors: list, period_from: str, period_to: str, reviewer:
         if key in existing:
             rec = existing[key].copy()
             rec.update({"count": e["count"], "error_description": e["error_description"], "updated_at": now})
+            if e.get("students"):   # refresh student list on re-check
+                rec["students"] = e["students"]
         else:
             rec = {
                 "id":                str(_uuid.uuid4())[:8],
@@ -241,6 +243,7 @@ def upsert_history(all_errors: list, period_from: str, period_to: str, reviewer:
                 "error_type":        e["error_type"],
                 "error_description": e["error_description"],
                 "count":             e["count"],
+                "students":          e.get("students", []),
                 "status":            "open",
                 "reviewer":          reviewer,
                 "reviewer_comment":  "",
@@ -933,11 +936,17 @@ with tab1:
                 st.write("🔍 Ищу ошибки…")
                 no_report  = defaultdict(lambda: defaultdict(int))
                 no_comment = defaultdict(lambda: defaultdict(int))
-                passes_to_set = []   # конкретные записи для SetStudentPasses
+                # Track student names per (teacher, date, error_type)
+                _nr_students  = defaultdict(lambda: defaultdict(list))  # no_report
+                _nc_students  = defaultdict(lambda: defaultdict(list))  # no_comment
+                passes_to_set = []
 
                 for eus in eu_students:
                     eu_id      = eus.get("EdUnitId")
                     student_id = eus.get("StudentClientId")
+                    # Try common name fields in HolliHop API response
+                    student_name = (eus.get("Name") or eus.get("StudentName")
+                                    or eus.get("ClientName") or str(student_id))
                     teachers   = eu_map.get(eu_id, {}).get("teachers", ["Неизвестный"])
                     for day in eus.get("Days", []):
                         d = day.get("Date", "")
@@ -948,6 +957,7 @@ with tab1:
                         if not is_pass and (eu_id, d, student_id) not in filled_reports:
                             for t in teachers:
                                 no_report[t][d] += 1
+                                _nr_students[t][d].append(student_name)
                             passes_to_set.append({
                                 "edUnitId":        eu_id,
                                 "studentClientId": student_id,
@@ -957,6 +967,7 @@ with tab1:
                         if is_pass and not desc:
                             for t in teachers:
                                 no_comment[t][d] += 1
+                                _nc_students[t][d].append(student_name)
 
                 # Build flat errors list + teacher_errors dict
                 all_errors, teacher_errors = [], {}
@@ -972,6 +983,7 @@ with tab1:
                             "error_type": "no_report",
                             "error_description": "Нет отчёта",
                             "count": date_counts[d],
+                            "students": sorted(set(_nr_students[teacher][d])),
                         })
 
                 for teacher, date_counts in no_comment.items():
@@ -985,6 +997,7 @@ with tab1:
                             "error_type": "no_abs_comment",
                             "error_description": "Нет комментария к пропуску",
                             "count": date_counts[d],
+                            "students": sorted(set(_nc_students[teacher][d])),
                         })
 
                 # Pre-generate messages
@@ -1705,6 +1718,11 @@ with tab4:
                             err_icon = "📋" if rec["error_type"] == "no_report" else "💬"
                             cnt_str = f" · {rec['count']} шт." if rec.get("count") else ""
                             st.caption(f"{err_icon} {rec['error_description']}{cnt_str}  ·  {d_str}")
+                            _students = rec.get("students", [])
+                            if _students:
+                                with st.expander(f"👥 {len(_students)} учеников", expanded=False):
+                                    for _sn in _students:
+                                        st.caption(f"• {_sn}")
 
                         with r_c2:
                             pill_cls = _STATUS_PILL.get(rec["status"], "pill")
