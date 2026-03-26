@@ -383,18 +383,20 @@ _last_save_error: str = ""   # module-level for debug display
 def save_history(records: list):
     global _last_save_error
     _last_save_error = ""
-    # 1. Supabase (primary) — upsert by id
+    saved = False
+
+    # 1. Supabase (primary) — always try
     sb, _ = _get_supabase_client()
     if sb is not None:
         try:
             rows = [_hist_dict_to_sb_row(r) for r in records]
             if rows:
-                # supabase-py v1 and v2 compatible upsert
                 sb.table("history").upsert(rows).execute()
-            return
+            saved = True
         except Exception as _e:
             _last_save_error = str(_e)
-    # 2. Google Sheets (fallback)
+
+    # 2. Google Sheets (mirror) — always try in parallel with Supabase
     ws, _ = _get_history_sheet()
     if ws is not None:
         try:
@@ -402,12 +404,14 @@ def save_history(records: list):
             ws.clear()
             if all_values:
                 ws.update("A1", all_values)
-            return
+            saved = True
         except Exception:
             pass
-    # 3. Local JSON (last resort)
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(records, f, ensure_ascii=False, indent=2, default=str)
+
+    # 3. Local JSON (last resort — only if both cloud backends failed)
+    if not saved:
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(records, f, ensure_ascii=False, indent=2, default=str)
 
 
 def upsert_history(all_errors: list, period_from: str, period_to: str, reviewer: str):
