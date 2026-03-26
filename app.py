@@ -1635,14 +1635,17 @@ with tab4:
                 pf_str, pt_str = pf, pt
 
             from collections import Counter as _HCnt
-            _hcnt     = _HCnt(r["status"] for r in filtered)
-            open_n    = _hcnt.get("open", 0)
-            handled_n = sum(_hcnt.get(s, 0) for s in ("handled", "resolved", "pass_set", "message_sent"))
-            header    = f"📅 {pf_str} — {pt_str}  ·  {len(filtered)} записей"
+            _hcnt      = _HCnt(r["status"] for r in filtered)
+            open_n     = _hcnt.get("open", 0)
+            wip_n      = sum(_hcnt.get(s, 0) for s in ("message_sent", "pass_set"))
+            handled_n  = sum(_hcnt.get(s, 0) for s in ("handled", "resolved"))
+            header     = f"📅 {pf_str} — {pt_str}  ·  {len(filtered)} записей"
             if open_n:
                 header += f"  ·  🔴 {open_n} открытых"
+            if wip_n:
+                header += f"  ·  ⏳ {wip_n} в работе"
             if handled_n:
-                header += f"  ·  ✅ {handled_n} обработано"
+                header += f"  ·  ✅ {handled_n} исправлено"
 
             with st.expander(header, expanded=(open_n > 0)):
 
@@ -1789,7 +1792,12 @@ with tab4:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _is_processed(r):
-    return r["status"] in ("handled", "pass_set", "message_sent", "resolved")
+    # Only truly resolved: teacher wrote report (auto-handled on re-check) or manually closed
+    return r["status"] in ("handled", "resolved")
+
+def _is_in_progress(r):
+    # We took action, but not yet confirmed fixed by re-check
+    return r["status"] in ("message_sent", "pass_set")
 
 def _is_open(r):
     return r["status"] == "open"
@@ -1870,20 +1878,23 @@ with tab5:
             _sr_status_cnt[_r["status"]] += 1
             _sr_teachers.add(_r["teacher"])
 
-        _processed_statuses = {"handled", "pass_set", "message_sent", "resolved"}
-        total_rec    = len(sr)
-        processed_n  = sum(_sr_status_cnt.get(s, 0) for s in _processed_statuses)
-        messages_n   = _sr_status_cnt.get("message_sent", 0)
-        open_n       = _sr_status_cnt.get("open", 0)
-        skipped_n    = _sr_status_cnt.get("skipped", 0)
-        teachers_n   = len(_sr_teachers)
+        _processed_statuses = {"handled", "resolved"}
+        _in_progress_statuses = {"message_sent", "pass_set"}
+        total_rec      = len(sr)
+        processed_n    = sum(_sr_status_cnt.get(s, 0) for s in _processed_statuses)
+        in_progress_n  = sum(_sr_status_cnt.get(s, 0) for s in _in_progress_statuses)
+        open_n         = _sr_status_cnt.get("open", 0)
+        teachers_n     = len(_sr_teachers)
 
         m1, m2, m3, m4, m5 = st.columns(5)
-        m1.metric("📋 Всего ошибок",            total_rec)
-        m2.metric("✅ Обработано",               processed_n)
-        m3.metric("💬 Сообщений отправлено",     messages_n)
-        m4.metric("🔴 Не обработано",            open_n)
-        m5.metric("👩‍🏫 Преподавателей",          teachers_n)
+        m1.metric("📋 Всего ошибок",      total_rec)
+        m2.metric("✅ Исправлено",         processed_n,
+                  help="Ошибки, где преподаватель реально написал отчёт (подтверждено перепроверкой) или закрыты вручную")
+        m3.metric("⏳ В работе",           in_progress_n,
+                  help="Отправлено напоминание или выставлен пропуск — ждём, пока преподаватель исправит")
+        m4.metric("🔴 Не обработано",      open_n,
+                  help="Ошибки, по которым ещё не предпринято никаких действий")
+        m5.metric("👩‍🏫 Преподавателей",    teachers_n)
 
         st.divider()
 
@@ -1898,13 +1909,15 @@ with tab5:
                 t     = _sr_by_teacher[teacher]
                 t_cnt = _Counter(r["status"] for r in t)
                 done  = sum(t_cnt.get(s, 0) for s in _processed_statuses)
+                wip   = sum(t_cnt.get(s, 0) for s in _in_progress_statuses)
                 total = len(t)
                 teacher_rows.append({
                     "Преподаватель":    teacher,
-                    "✅ Обработано":    done,
-                    "🔴 Не обработано": t_cnt.get("open", 0),
+                    "✅ Исправлено":    done,
+                    "⏳ В работе":      wip,
+                    "🔴 Открыто":       t_cnt.get("open", 0),
                     "Всего":            total,
-                    "% выполнено":      round(done / total * 100) if total else 0,
+                    "% исправлено":     round(done / total * 100) if total else 0,
                 })
 
             df_teachers = pd.DataFrame(teacher_rows)
@@ -1915,12 +1928,13 @@ with tab5:
                 hide_index=True,
                 column_config={
                     "Преподаватель":    st.column_config.TextColumn(width="large"),
-                    "✅ Обработано":    st.column_config.NumberColumn(width="small"),
-                    "🔴 Не обработано": st.column_config.NumberColumn(width="small"),
+                    "✅ Исправлено":    st.column_config.NumberColumn(width="small"),
+                    "⏳ В работе":      st.column_config.NumberColumn(width="small"),
+                    "🔴 Открыто":       st.column_config.NumberColumn(width="small"),
                     "Всего":            st.column_config.NumberColumn(width="small"),
-                    "% выполнено":      st.column_config.ProgressColumn(
-                        "% выполнено",
-                        help="Доля обработанных ошибок",
+                    "% исправлено":     st.column_config.ProgressColumn(
+                        "% исправлено",
+                        help="Доля ошибок, где преподаватель реально написал отчёт",
                         format="%d%%",
                         min_value=0,
                         max_value=100,
@@ -1934,11 +1948,11 @@ with tab5:
         with col_sum:
             st.markdown("**Сводка по статусам**")
             summary_rows = [
-                {"Статус": "✅ Обработано",            "Кол-во": _sr_status_cnt.get("handled", 0) + _sr_status_cnt.get("resolved", 0)},
-                {"Статус": "💬 Сообщение отправлено",  "Кол-во": _sr_status_cnt.get("message_sent", 0)},
-                {"Статус": "🚫 Пропуск выставлен",          "Кол-во": _sr_status_cnt.get("pass_set", 0)},
-                {"Статус": "🔴 Открыто",                    "Кол-во": _sr_status_cnt.get("open", 0)},
-                {"Статус": "⚪ Пропущено",                  "Кол-во": _sr_status_cnt.get("skipped", 0)},
+                {"Статус": "✅ Исправлено",            "Кол-во": _sr_status_cnt.get("handled", 0) + _sr_status_cnt.get("resolved", 0)},
+                {"Статус": "💬 Напоминание отправлено", "Кол-во": _sr_status_cnt.get("message_sent", 0)},
+                {"Статус": "🚫 Пропуск выставлен",     "Кол-во": _sr_status_cnt.get("pass_set", 0)},
+                {"Статус": "🔴 Открыто",               "Кол-во": _sr_status_cnt.get("open", 0)},
+                {"Статус": "⚪ Пропущено",              "Кол-во": _sr_status_cnt.get("skipped", 0)},
             ]
             st.dataframe(
                 pd.DataFrame(summary_rows),
