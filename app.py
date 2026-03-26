@@ -269,6 +269,56 @@ def _get_history_sheet():
     ws = _get_history_worksheet(sid)
     return (ws, sid) if ws is not None else (None, None)
 
+# ── Supabase (primary history backend) ───────────────────────────────────────
+
+@st.cache_resource(show_spinner=False)
+def _get_supabase_client():
+    """Cached Supabase client."""
+    try:
+        from supabase import create_client as _sb_create
+        _url = (st.secrets.get("supabase_url", "") or
+                load_config().get("supabase_url", ""))
+        _key = (st.secrets.get("supabase_key", "") or
+                load_config().get("supabase_key", ""))
+        if not _url or not _key:
+            return None
+        return _sb_create(_url, _key)
+    except Exception:
+        return None
+
+def _hist_dict_to_sb_row(rec: dict) -> dict:
+    """Convert history dict to Supabase row (students → JSON string)."""
+    row = dict(rec)
+    if isinstance(row.get("students"), list):
+        row["students"] = json.dumps(row["students"], ensure_ascii=False)
+    row["count"] = int(row.get("count", 0))
+    return row
+
+def _sb_row_to_hist_dict(row: dict) -> dict:
+    """Convert Supabase row back to history dict (students JSON → list)."""
+    row = dict(row)
+    if isinstance(row.get("students"), str):
+        try:    row["students"] = json.loads(row["students"])
+        except: row["students"] = []
+    elif not isinstance(row.get("students"), list):
+        row["students"] = []
+    row["count"] = int(row.get("count", 0))
+    return row
+
+def mirror_to_sheets(records: list):
+    """Write full history to Google Sheets (mirror/backup)."""
+    ws, _ = _get_history_sheet()
+    if ws is None:
+        return False, "Sheets не подключён"
+    try:
+        all_values = [_HIST_HEADERS] + [_hist_dict_to_row(r) for r in records]
+        ws.clear()
+        if all_values:
+            ws.update("A1", all_values)
+        return True, f"Синхронизировано {len(records)} записей"
+    except Exception as e:
+        return False, str(e)
+
 def create_history_sheet() -> tuple:
     """Create a new Google Sheet for history. Returns (sheet_id, url) or raises."""
     gc = _get_gspread_client()
@@ -283,16 +333,25 @@ def create_history_sheet() -> tuple:
     return sh.id, sh.url
 
 def load_history() -> list:
+    # 1. Supabase (primary)
+    sb = _get_supabase_client()
+    if sb is not None:
+        try:
+            res = sb.table("history").select("*").execute()
+            if res.data is not None:
+                return [_sb_row_to_hist_dict(r) for r in res.data]
+        except Exception:
+            pass
+    # 2. Google Sheets (fallback)
     ws, _ = _get_history_sheet()
     if ws is not None:
         try:
             rows = ws.get_all_values()
-            if not rows or len(rows) < 2:
-                return []
-            return [_hist_row_to_dict(r) for r in rows[1:] if any(r)]
+            if rows and len(rows) >= 2:
+                return [_hist_row_to_dict(r) for r in rows[1:] if any(r)]
         except Exception:
             pass
-    # Fallback: local JSON
+    # 3. Local JSON (last resort)
     if os.path.exists(HISTORY_FILE):
         try:
             with open(HISTORY_FILE, encoding="utf-8") as f:
@@ -302,6 +361,17 @@ def load_history() -> list:
     return []
 
 def save_history(records: list):
+    # 1. Supabase (primary) — upsert by id
+    sb = _get_supabase_client()
+    if sb is not None:
+        try:
+            rows = [_hist_dict_to_sb_row(r) for r in records]
+            if rows:
+                sb.table("history").upsert(rows, on_conflict="id").execute()
+            return
+        except Exception:
+            pass
+    # 2. Google Sheets (fallback)
     ws, _ = _get_history_sheet()
     if ws is not None:
         try:
@@ -312,7 +382,7 @@ def save_history(records: list):
             return
         except Exception:
             pass
-    # Fallback: local JSON
+    # 3. Local JSON (last resort)
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(records, f, ensure_ascii=False, indent=2, default=str)
 
@@ -1173,38 +1243,77 @@ with _gear_col:
             creds_json = creds_file.read().decode() if creds_file else cfg.get("creds_json", None)
 
         st.divider()
-        st.markdown("**📗 История (Google Sheets)**")
+        st.markdown("**🗄️ Supabase (основное хранилище)**")
+        _sb = _get_supabase_client()
+        if _sb is not None:
+            st.caption("✅ Supabase подключён")
+            # Export JSON download
+            _all_hist_export = load_history()
+            if _all_hist_export:
+                _export_json = json.dumps(_all_hist_export, ensure_ascii=False, indent=2, default=str)
+                st.download_button(
+                    "⬇️ Скачать всю историю (JSON)",
+                    data=_export_json.encode("utf-8"),
+                    file_name=f"history_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                    mime="application/json",
+                    use_container_width=True,
+                    key="export_json_btn",
+                )
+            # Sync to Sheets button
+            if st.button("🔄 Синхронизировать в Sheets", key="sync_to_sheets_btn",
+                         use_container_width=True):
+                with st.spinner("Синхронизирую…"):
+                    _ok, _msg = mirror_to_sheets(load_history())
+                (st.success if _ok else st.error)(f"{'✅' if _ok else '❌'} {_msg}")
+        else:
+            st.caption("⚠️ Supabase не настроен")
+            with st.expander("Как подключить Supabase"):
+                st.markdown("""
+1. Зайди на [supabase.com](https://supabase.com) → создай проект (бесплатно)
+2. В проекте: **SQL Editor** → выполни:
+```sql
+create table history (
+  id text primary key,
+  checked_at text, period_from text, period_to text,
+  date text, teacher text, student_tag text default 'Все',
+  error_type text, error_description text,
+  count integer default 0, students text default '[]',
+  status text default 'open', reviewer text,
+  reviewer_comment text, updated_at text
+);
+alter table history enable row level security;
+create policy "allow_all" on history for all using (true) with check (true);
+```
+3. **Settings → API** → скопируй `URL` и `anon public key`
+4. Добавь в Streamlit Secrets:
+```toml
+supabase_url = "https://xxxx.supabase.co"
+supabase_key = "eyJ..."
+```
+5. Нажми **Migrate** ниже для переноса данных из Sheets
+""")
+            # One-time migration button
+            if st.button("📥 Migrate: перенести данные в Supabase",
+                         key="migrate_to_sb", use_container_width=True):
+                st.info("Настрой Supabase в Secrets и перезапусти приложение, затем нажми снова.")
+
+        st.divider()
+        st.markdown("**📗 Зеркало (Google Sheets)**")
         _hist_ws, _hist_sid = _get_history_sheet()
         if _hist_sid:
             st.caption(f"✅ Подключено: `{_hist_sid[:20]}…`")
             _hist_url = f"https://docs.google.com/spreadsheets/d/{_hist_sid}"
             st.caption(f"[Открыть таблицу]({_hist_url})")
         else:
-            st.caption("⚠️ История хранится локально (риск потери при redeploy)")
-            if st.button("➕ Создать таблицу истории", key="create_hist_sheet",
+            st.caption("⚠️ Sheets не настроен (резервная копия недоступна)")
+            if st.button("➕ Создать таблицу-зеркало", key="create_hist_sheet",
                          use_container_width=True):
                 with st.spinner("Создаю таблицу…"):
                     try:
                         _new_sid, _new_url = create_history_sheet()
-                        st.success(f"✅ Таблица создана!")
-                        st.code(_new_sid, language=None)
-                        st.caption("Скопируй ID выше и добавь в Streamlit Secrets:")
+                        st.success("✅ Таблица создана!")
                         st.code(f'history_sheet_id = "{_new_sid}"', language="toml")
                         st.caption(f"[Открыть таблицу]({_new_url})")
-                        # Migrate existing local history if any
-                        if os.path.exists(HISTORY_FILE):
-                            try:
-                                with open(HISTORY_FILE, encoding="utf-8") as _mf:
-                                    _old = json.load(_mf)
-                                if _old:
-                                    import gspread as _mgs
-                                    _msh = _get_gspread_client().open_by_key(_new_sid)
-                                    _mws = _msh.sheet1
-                                    _mrows = [_hist_dict_to_row(r) for r in _old]
-                                    _mws.append_rows(_mrows, value_input_option="USER_ENTERED")
-                                    st.caption(f"↳ Перенесено {len(_old)} записей из локального файла")
-                            except Exception as _me:
-                                st.caption(f"↳ Миграция не удалась: {_me}")
                     except Exception as _ce:
                         st.error(f"Ошибка: {_ce}")
 
