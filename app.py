@@ -1390,26 +1390,35 @@ supabase_key = "eyJ..."
             st.caption(f"[Открыть таблицу]({_hist_url})")
         else:
             st.caption("⚠️ Sheets не настроен — резервная копия недоступна (основные данные в Supabase)")
-            if st.button("➕ Создать таблицу-зеркало", key="create_hist_sheet",
+
+        st.caption("Укажи ID существующей таблицы, к которой у сервисного аккаунта есть доступ:")
+        _new_hist_sid = st.text_input(
+            "ID таблицы-зеркала",
+            value=_hist_sid or "",
+            placeholder="1xd69v1vGx…",
+            key="cfg_hist_sheet_id",
+            label_visibility="collapsed",
+        )
+        if _new_hist_sid and _new_hist_sid != _hist_sid:
+            if st.button("🔗 Подключить таблицу", key="connect_hist_sheet",
                          use_container_width=True):
-                with st.spinner("Создаю таблицу…"):
+                with st.spinner("Проверяю доступ…"):
                     try:
-                        _new_sid, _new_url = create_history_sheet()
-                        st.success("✅ Таблица создана!")
-                        st.code(f'history_sheet_id = "{_new_sid}"', language="toml")
-                        st.caption(f"[Открыть таблицу]({_new_url})")
-                    except Exception as _ce:
-                        _ce_str = str(_ce)
-                        if "quota" in _ce_str.lower() or "403" in _ce_str:
-                            st.error(
-                                "❌ Закончилось место на Google Drive сервисного аккаунта.\n\n"
-                                "**Как исправить:** зайди в Google Drive аккаунта, к которому "
-                                "привязан сервисный ключ, и освободи место (удали лишние файлы "
-                                "или перейди на аккаунт с достаточным хранилищем).\n\n"
-                                "История при этом в безопасности — она хранится в Supabase."
-                            )
+                        gc_test = _get_gspread_client()
+                        if gc_test is None:
+                            st.error("❌ Нет подключения к Google — проверь gcp_service_account в Secrets")
                         else:
-                            st.error(f"Ошибка: {_ce}")
+                            ws_test = gc_test.open_by_key(_new_hist_sid).sheet1
+                            # Ensure header row exists
+                            existing_vals = ws_test.row_values(1)
+                            if existing_vals != _HIST_HEADERS:
+                                ws_test.update("A1", [_HIST_HEADERS])
+                                ws_test.freeze(rows=1)
+                            st.success("✅ Доступ подтверждён!")
+                            st.info("Добавь в **Streamlit Secrets** и нажми Reboot app:")
+                            st.code(f'history_sheet_id = "{_new_hist_sid}"', language="toml")
+                    except Exception as _ce:
+                        st.error(f"❌ Не удалось открыть таблицу: {_ce}")
 
         st.divider()
         st.markdown("**📋 Данные о преподавателях**")
