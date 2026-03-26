@@ -985,9 +985,22 @@ def _show_welcome():
     html, body, .stApp {{ background: {bg} !important; }}
     .stApp > header, [data-testid="stToolbar"],
     [data-testid="collapsedControl"], [data-testid="stSidebar"] {{ display:none!important; }}
-    .block-container {{
-        padding: 0 !important; max-width: 100% !important;
-        overflow: hidden;
+
+    /* Center the entire Streamlit main column */
+    section[data-testid="stMain"] {{
+        padding: 0 !important;
+    }}
+    .block-container, [data-testid="stMainBlockContainer"] {{
+        padding: 0 !important; margin: 0 auto !important;
+        max-width: 100% !important; min-height: 100vh !important;
+        display: flex !important; flex-direction: column !important;
+        align-items: center !important; justify-content: center !important;
+        gap: 20px !important;
+    }}
+    /* Remove stray element-container padding */
+    .element-container {{ padding: 0 !important; margin: 0 !important; }}
+    [data-testid="stHorizontalBlock"] {{
+        padding: 0 !important; margin: 0 !important;
     }}
 
     {night_stars}
@@ -1012,14 +1025,11 @@ def _show_welcome():
         50%      {{ transform:translate(-50%,-50%) scale(1.25); opacity:1; }}
     }}
 
-    /* card — fixed center, slightly above middle */
+    /* card — flows naturally in centered column */
     .wb-card {{
-        position: fixed;
-        top: 50%; left: 50%;
-        transform: translate(-50%, -65%);
-        z-index: 10;
+        position: relative; z-index: 10;
         text-align: center;
-        padding: 3rem 3.5rem 2.8rem;
+        padding: 3rem 3.5rem 2.5rem;
         background: {card_bg};
         backdrop-filter: blur(48px); -webkit-backdrop-filter: blur(48px);
         border: 1px solid {card_bdr};
@@ -1030,20 +1040,8 @@ def _show_welcome():
         max-width: 480px; width: 86vw;
     }}
     @keyframes wb-card-in {{
-        0%   {{ transform: translate(-50%, calc(-65% + 50px)) scale(.93); opacity:0; }}
-        100% {{ transform: translate(-50%, -65%) scale(1); opacity:1; }}
-    }}
-
-    /* label above buttons */
-    .wb-label-outer {{
-        position: fixed;
-        top: 50%; left: 50%;
-        transform: translate(-50%, 100px);
-        z-index: 11;
-        font-size: .76rem; color: rgba(255,255,255,.5);
-        text-transform: uppercase; letter-spacing: 2.5px; font-weight: 600;
-        white-space: nowrap;
-        animation: wb-fade-up .7s ease .55s both;
+        0%   {{ transform: translateY(50px) scale(.93); opacity:0; }}
+        100% {{ transform: translateY(0)    scale(1);   opacity:1; }}
     }}
 
     .wb-emoji   {{ font-size:3.6rem; display:block; margin-bottom:.4rem;
@@ -1059,26 +1057,24 @@ def _show_welcome():
                    animation: wb-fade-up .7s ease .3s both; }}
 
     .wb-greet   {{ font-size:1.15rem; color:{txt_sub}; font-weight:300;
-                   letter-spacing:.4px; margin:0 0 2.2rem;
+                   letter-spacing:.4px; margin:0;
                    animation: wb-fade-up .7s ease .45s both; }}
-
-    .wb-label   {{ display: none; }}
 
     @keyframes wb-fade-up {{
         0%   {{ transform:translateY(18px); opacity:0; }}
         100% {{ transform:translateY(0);    opacity:1; }}
     }}
 
-    /* buttons — fixed, clearly below card */
-    [data-testid="stHorizontalBlock"] {{
-        position: fixed !important;
-        top: 50% !important; left: 50% !important;
-        transform: translate(-50%, 135px) !important;
-        width: 460px !important; max-width: 86vw !important;
-        z-index: 101 !important;
-        animation: wb-fade-up .7s ease .65s both;
-        gap: 12px !important;
+    /* label between card and buttons */
+    .wb-label-outer {{
+        font-size: .76rem; color: rgba(255,255,255,.5);
+        text-transform: uppercase; letter-spacing: 2.5px; font-weight: 600;
+        text-align: center;
+        animation: wb-fade-up .7s ease .55s both;
+        z-index: 10; position: relative;
     }}
+
+    /* buttons */
     [data-testid="stHorizontalBlock"] .stButton button {{
         padding: 1.1rem 1.6rem !important;
         font-size: 1.05rem !important; font-weight: 700 !important;
@@ -1091,6 +1087,7 @@ def _show_welcome():
         box-shadow: 0 8px 28px rgba(0,0,0,.25) !important;
         letter-spacing: .3px !important;
         width: 100% !important;
+        animation: wb-fade-up .7s ease .65s both;
     }}
     [data-testid="stHorizontalBlock"] .stButton button:hover {{
         background: rgba(255,255,255,.2)  !important;
@@ -1100,6 +1097,10 @@ def _show_welcome():
     }}
     [data-testid="stHorizontalBlock"] .stButton button:active {{
         transform: translateY(0) scale(.97) !important;
+    }}
+    [data-testid="stHorizontalBlock"] {{
+        width: 460px !important; max-width: 86vw !important;
+        z-index: 10 !important;
     }}
     </style>
 
@@ -1115,7 +1116,7 @@ def _show_welcome():
     <div class="wb-label-outer">Под чьим именем хотите войти?</div>
     """, unsafe_allow_html=True)
 
-    _u1, _u2 = st.columns(2)
+    _u1, _u2 = st.columns(2, gap="small")
     if _u1.button("🌸  Дарья", key="wb_darya", use_container_width=True):
         st.session_state["billyboba_user"] = "Дарья"
         st.rerun()
