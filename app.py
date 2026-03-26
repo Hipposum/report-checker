@@ -1289,6 +1289,23 @@ with _gear_col:
                 with st.spinner("Синхронизирую…"):
                     _ok, _msg = mirror_to_sheets(load_history())
                 (st.success if _ok else st.error)(f"{'✅' if _ok else '❌'} {_msg}")
+
+            # Restore from JSON upload
+            st.markdown("**📂 Восстановить из JSON-бэкапа**")
+            _restore_file = st.file_uploader(
+                "Загрузи файл history_backup_*.json", type=["json"],
+                key="restore_json_upload",
+            )
+            if _restore_file is not None:
+                if st.button("📥 Загрузить в Supabase", key="restore_json_btn",
+                             use_container_width=True):
+                    with st.spinner("Восстанавливаю…"):
+                        try:
+                            _restore_data = json.loads(_restore_file.read().decode("utf-8"))
+                            save_history(_restore_data)
+                            st.success(f"✅ Восстановлено {len(_restore_data)} записей")
+                        except Exception as _re:
+                            st.error(f"Ошибка: {_re}")
         else:
             st.caption(f"⚠️ Supabase не подключён: `{_sb_err}`")
             with st.expander("Как подключить Supabase"):
@@ -1308,18 +1325,28 @@ create table history (
 alter table history enable row level security;
 create policy "allow_all" on history for all using (true) with check (true);
 ```
-3. **Settings → API** → скопируй `URL` и `anon public key`
+3. **Settings → API** → скопируй `URL` и `service_role key`
 4. Добавь в Streamlit Secrets:
 ```toml
 supabase_url = "https://xxxx.supabase.co"
 supabase_key = "eyJ..."
 ```
-5. Нажми **Migrate** ниже для переноса данных из Sheets
 """)
-            # One-time migration button
-            if st.button("📥 Migrate: перенести данные в Supabase",
+            # Migration from Sheets → Supabase (when Supabase not yet connected)
+            if st.button("📥 Migrate из Sheets в Supabase",
                          key="migrate_to_sb", use_container_width=True):
-                st.info("Настрой Supabase в Secrets и перезапусти приложение, затем нажми снова.")
+                with st.spinner("Читаю данные из Sheets…"):
+                    _ws_migrate, _ = _get_history_sheet()
+                    if _ws_migrate is None:
+                        st.error("Sheets не подключён, нечего мигрировать")
+                    else:
+                        try:
+                            _rows_m = _ws_migrate.get_all_values()
+                            _recs_m = [_hist_row_to_dict(r) for r in _rows_m[1:] if any(r)]
+                            save_history(_recs_m)
+                            st.success(f"✅ Перенесено {len(_recs_m)} записей в Supabase")
+                        except Exception as _me:
+                            st.error(f"Ошибка миграции: {_me}")
 
         st.divider()
         st.markdown("**📗 Зеркало (Google Sheets)**")
