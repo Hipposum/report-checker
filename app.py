@@ -1246,7 +1246,23 @@ pachca_token = _read_secret("pachca_token") or cfg.get("pachca_token", "")
 _title_col, _dates_col, _gear_col = st.columns([4, 2.5, 0.7])
 
 with _title_col:
-    st.markdown("## 📋 Проверка отчётов HolliHop")
+    _sb_check, _sb_check_err = _get_supabase_client()
+    if _sb_check is None:
+        _status_badge = (
+            '<span title="Supabase недоступен — данные могут не сохраняться" '
+            'style="display:inline-flex;align-items:center;gap:5px;'
+            'background:rgba(239,68,68,.15);color:#f87171;'
+            'border:1px solid rgba(239,68,68,.3);border-radius:8px;'
+            'font-size:.72rem;font-weight:600;padding:2px 9px;'
+            'vertical-align:middle;margin-left:10px;cursor:default;">'
+            '⚠️ БД недоступна</span>'
+        )
+    else:
+        _status_badge = ""
+    st.markdown(
+        f'## 📋 Проверка отчётов HolliHop{_status_badge}',
+        unsafe_allow_html=True,
+    )
 
 with _dates_col:
     _dc1, _dc2 = st.columns(2)
