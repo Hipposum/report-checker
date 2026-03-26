@@ -2394,7 +2394,6 @@ with tab5:
                 "Тип ошибки",
                 ["Все типы", "📋 Нет отчёта", "💬 Нет комментария"],
                 key="stat_err_type",
-                label_visibility="collapsed",
             )
         if _err_type_opt == "📋 Нет отчёта":
             sr = [r for r in sr if r.get("error_type") == "no_report"]
@@ -2407,7 +2406,6 @@ with tab5:
                 "Категория",
                 ["Все", "Только преподаватели", "Только стажёры"],
                 key="stat_role_filter",
-                label_visibility="collapsed",
             )
         if _role_opt == "Только преподаватели":
             sr = [r for r in sr if not _teacher_info.get(r["teacher"], {}).get("is_intern", False)]
