@@ -1081,19 +1081,29 @@ def _show_welcome():
 
     /* Center the entire Streamlit main column */
     section[data-testid="stMain"] {{
+        position: fixed !important;
+        inset: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        overflow: hidden !important;
         padding: 0 !important;
     }}
     .block-container, [data-testid="stMainBlockContainer"] {{
         padding: 0 !important; margin: 0 auto !important;
-        max-width: 100% !important; min-height: 100vh !important;
+        max-width: 100vw !important;
         display: flex !important; flex-direction: column !important;
         align-items: center !important; justify-content: center !important;
         gap: 20px !important;
     }}
-    /* Remove stray element-container padding */
-    .element-container {{ padding: 0 !important; margin: 0 !important; }}
-    [data-testid="stHorizontalBlock"] {{
+    /* Remove stray element-container padding, center children */
+    .element-container {{
         padding: 0 !important; margin: 0 !important;
+        display: flex !important; flex-direction: column !important;
+        align-items: center !important; width: 100% !important;
+    }}
+    [data-testid="stHorizontalBlock"] {{
+        padding: 0 !important; margin: 0 auto !important;
     }}
 
     {night_stars}
