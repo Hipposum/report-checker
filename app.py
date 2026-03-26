@@ -192,10 +192,107 @@ HISTORY_FILE  = os.path.join(os.path.dirname(__file__), "history.json")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  HISTORY — read / write / update
+#  HISTORY — Google Sheets backend (falls back to local JSON for dev)
 # ─────────────────────────────────────────────────────────────────────────────
 
+_HIST_HEADERS = [
+    "id", "checked_at", "period_from", "period_to", "date", "teacher",
+    "student_tag", "error_type", "error_description", "count", "students",
+    "status", "reviewer", "reviewer_comment", "updated_at",
+]
+
+def _hist_row_to_dict(row: list) -> dict:
+    if len(row) < len(_HIST_HEADERS):
+        row = list(row) + [""] * (len(_HIST_HEADERS) - len(row))
+    r = dict(zip(_HIST_HEADERS, row))
+    try:    r["students"] = json.loads(r.get("students") or "[]")
+    except Exception: r["students"] = []
+    try:    r["count"] = int(r["count"]) if r["count"] else 0
+    except Exception: r["count"] = 0
+    return r
+
+def _hist_dict_to_row(rec: dict) -> list:
+    return [
+        rec.get("id", ""),
+        rec.get("checked_at", ""),
+        rec.get("period_from", ""),
+        rec.get("period_to", ""),
+        rec.get("date", ""),
+        rec.get("teacher", ""),
+        rec.get("student_tag", "Все"),
+        rec.get("error_type", ""),
+        rec.get("error_description", ""),
+        str(rec.get("count", 0)),
+        json.dumps(rec.get("students", []), ensure_ascii=False),
+        rec.get("status", "open"),
+        rec.get("reviewer", ""),
+        rec.get("reviewer_comment", ""),
+        rec.get("updated_at", ""),
+    ]
+
+@st.cache_resource(show_spinner=False)
+def _get_gspread_client():
+    """Shared authenticated gspread client (cached as resource)."""
+    try:
+        import gspread as _gs
+        from google.oauth2.service_account import Credentials as _C
+        _scopes = ["https://www.googleapis.com/auth/spreadsheets",
+                   "https://www.googleapis.com/auth/drive"]
+        try:
+            sa = dict(st.secrets["gcp_service_account"])
+        except Exception:
+            _cj = load_config().get("creds_json", "")
+            if not _cj:
+                return None
+            sa = json.loads(_cj)
+        return _gs.authorize(_C.from_service_account_info(sa, scopes=_scopes))
+    except Exception:
+        return None
+
+@st.cache_resource(show_spinner=False)
+def _get_history_worksheet(sheet_id: str):
+    """Cached worksheet object — re-created only when sheet_id changes."""
+    gc = _get_gspread_client()
+    if not gc or not sheet_id:
+        return None
+    try:
+        return gc.open_by_key(sheet_id).sheet1
+    except Exception:
+        return None
+
+def _get_history_sheet():
+    """Return (gspread Worksheet | None, sheet_id | None)."""
+    cfg_ = load_config()
+    sid  = cfg_.get("history_sheet_id", "") or st.secrets.get("history_sheet_id", "")
+    if not sid:
+        return None, None
+    ws = _get_history_worksheet(sid)
+    return (ws, sid) if ws is not None else (None, None)
+
+def create_history_sheet() -> tuple:
+    """Create a new Google Sheet for history. Returns (sheet_id, url) or raises."""
+    gc = _get_gspread_client()
+    if not gc:
+        raise RuntimeError("Нет подключения к Google (проверь credentials в настройках)")
+    sh = gc.create("📚 Проверка отчётов — История")
+    ws = sh.sheet1
+    ws.update("A1", [_HIST_HEADERS])
+    ws.freeze(rows=1)
+    # Make it accessible to anyone with the link (viewer)
+    gc.insert_permission(sh.id, None, perm_type="anyone", role="reader")
+    return sh.id, sh.url
+
 def load_history() -> list:
+    ws, _ = _get_history_sheet()
+    if ws is not None:
+        try:
+            rows = ws.get_all_values()
+            if not rows or len(rows) < 2:
+                return []
+            return [_hist_row_to_dict(r) for r in rows[1:] if any(r)]
+        except Exception:
+            pass
+    # Fallback: local JSON
     if os.path.exists(HISTORY_FILE):
         try:
             with open(HISTORY_FILE, encoding="utf-8") as f:
@@ -204,8 +301,18 @@ def load_history() -> list:
             pass
     return []
 
-
 def save_history(records: list):
+    ws, _ = _get_history_sheet()
+    if ws is not None:
+        try:
+            all_values = [_HIST_HEADERS] + [_hist_dict_to_row(r) for r in records]
+            ws.clear()
+            if all_values:
+                ws.update("A1", all_values)
+            return
+        except Exception:
+            pass
+    # Fallback: local JSON
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(records, f, ensure_ascii=False, indent=2, default=str)
 
@@ -836,6 +943,42 @@ with _gear_col:
             sheet_name = st.text_input("Имя листа",   value=cfg.get("sheet_name", "Лист1"), key="cfg_sheet_name")
             creds_file = st.file_uploader("Service Account JSON", type=["json"], key="cfg_creds")
             creds_json = creds_file.read().decode() if creds_file else cfg.get("creds_json", None)
+
+        st.divider()
+        st.markdown("**📗 История (Google Sheets)**")
+        _hist_ws, _hist_sid = _get_history_sheet()
+        if _hist_sid:
+            st.caption(f"✅ Подключено: `{_hist_sid[:20]}…`")
+            _hist_url = f"https://docs.google.com/spreadsheets/d/{_hist_sid}"
+            st.caption(f"[Открыть таблицу]({_hist_url})")
+        else:
+            st.caption("⚠️ История хранится локально (риск потери при redeploy)")
+            if st.button("➕ Создать таблицу истории", key="create_hist_sheet",
+                         use_container_width=True):
+                with st.spinner("Создаю таблицу…"):
+                    try:
+                        _new_sid, _new_url = create_history_sheet()
+                        st.success(f"✅ Таблица создана!")
+                        st.code(_new_sid, language=None)
+                        st.caption("Скопируй ID выше и добавь в Streamlit Secrets:")
+                        st.code(f'history_sheet_id = "{_new_sid}"', language="toml")
+                        st.caption(f"[Открыть таблицу]({_new_url})")
+                        # Migrate existing local history if any
+                        if os.path.exists(HISTORY_FILE):
+                            try:
+                                with open(HISTORY_FILE, encoding="utf-8") as _mf:
+                                    _old = json.load(_mf)
+                                if _old:
+                                    import gspread as _mgs
+                                    _msh = _get_gspread_client().open_by_key(_new_sid)
+                                    _mws = _msh.sheet1
+                                    _mrows = [_hist_dict_to_row(r) for r in _old]
+                                    _mws.append_rows(_mrows, value_input_option="USER_ENTERED")
+                                    st.caption(f"↳ Перенесено {len(_old)} записей из локального файла")
+                            except Exception as _me:
+                                st.caption(f"↳ Миграция не удалась: {_me}")
+                    except Exception as _ce:
+                        st.error(f"Ошибка: {_ce}")
 
         st.divider()
         st.markdown("**📋 Данные о преподавателях**")
