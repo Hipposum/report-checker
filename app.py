@@ -462,7 +462,7 @@ def upsert_history(all_errors: list, period_from: str, period_to: str, reviewer:
         if period_from <= rec["date"] <= period_to:
             # Was in range but error gone — teacher fixed it
             rec = rec.copy()
-            if rec["status"] in ("open", "message_sent", "pass_set"):
+            if rec["status"] in ("open", "message_sent"):
                 rec.update({"status": "handled", "updated_at": now})
         result[key] = rec
 
