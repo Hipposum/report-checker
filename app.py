@@ -3126,6 +3126,7 @@ with tab7:
                         "grade":       _grade,
                         "comment":     _comment,
                         "_raw_keys":   list(_r.keys()),
+                        "_raw_skills": _r.get("Skills"),
                     })
 
                 st.session_state[_rp_cache_key] = _rp_rows
@@ -3223,9 +3224,11 @@ with tab7:
                             unsafe_allow_html=True,
                         )
 
-        # ── Debug: show raw API fields if grades/comments are empty ──────────
-        if _rp_data and all(not r["grade"] for r in _rp_data[:10]):
-            with st.expander("🛠 Отладка: поля API (первая запись)", expanded=False):
-                st.caption("Все оценки пустые — возможно, поле называется иначе в вашем HolliHop")
-                if _rp_data[0].get("_raw_keys"):
-                    st.code(str(_rp_data[0]["_raw_keys"]))
+        # ── Debug: show raw Skills structure ──────────────────────────────────
+        if _rp_data:
+            _dbg_rec = next((r for r in _rp_data if r.get("_raw_skills")), _rp_data[0])
+            with st.expander("🛠 Отладка: структура Skills (первая запись)", expanded=False):
+                st.caption("Поля API:")
+                st.code(str(_dbg_rec.get("_raw_keys")))
+                st.caption("Skills:")
+                st.json(_dbg_rec.get("_raw_skills") or [])
