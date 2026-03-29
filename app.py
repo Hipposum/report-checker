@@ -3085,20 +3085,25 @@ with tab6:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _rp_grade(r):
-    """Extract per-student grade from comment text (teachers write it inline).
-    Skills field is lesson-level and identical for all students — not used for grade."""
-    comment = str(r.get("CommentText") or r.get("CommentHtml") or "")
-    # Patterns: "оценка: 7", "оценка 7/10", "оценка: -5-", "снял 3 балла"
-    _patterns = [
-        r'оценк[аи][:\s\-]+(\-?\d+(?:[.,]\d+)?(?:\s*/\s*\d+)?)',  # оценка: 7  / оценка: 7/10
-        r'(\d+(?:[.,]\d+)?)\s*/\s*10\b',                           # 7/10  3/10
-        r'балл[аов]*[:\s]+(\d+)',                                   # баллов: 5
-    ]
-    for _pat in _patterns:
-        _m = re.search(_pat, comment, re.IGNORECASE)
-        if _m:
-            return _m.group(1).strip().replace(",", ".")
-    return ""
+    """Extract grade from Skills array."""
+    skills = r.get("Skills") or []
+    if not skills:
+        return ""
+    parts = []
+    for sk in skills:
+        name      = sk.get("SkillName") or sk.get("Name") or ""
+        valid     = sk.get("ValidScore")
+        score     = sk.get("Score")
+        max_score = sk.get("MaxScore")
+        # Use ValidScore if present and differs from Score (it's the adjusted grade)
+        mark = valid if valid is not None else score
+        if mark is None:
+            continue
+        val = f"{mark}/{max_score}" if max_score is not None else str(mark)
+        if name and not (len(skills) == 1 and name == "Общий"):
+            val = f"{name}: {val}"
+        parts.append(val)
+    return " · ".join(parts) if parts else ""
 
 def _strip_html(html: str) -> str:
     text = re.sub(r'<[^>]+>', ' ', html)
@@ -3186,6 +3191,7 @@ with tab7:
                         "test_type":   (_r.get("TestTypeName") or ""),
                         "grade":       _grade,
                         "comment":     _comment,
+                        "_skills":     _r.get("Skills") or [],
                     })
 
                 st.session_state[_rp_cache_key] = _rp_rows
@@ -3196,6 +3202,12 @@ with tab7:
     if not _rp_data and not _rp_load_btn:
         st.info("Выбери период и нажми «Загрузить».")
     elif _rp_data:
+        # ── Debug: Skills по первым 5 записям ────────────────────────────────
+        with st.expander("🛠 Отладка: Skills первых 5 записей", expanded=False):
+            for _dbr in _rp_data[:5]:
+                st.caption(f"**{_dbr['student']}** | оценка из функции: `{_dbr['grade']}`")
+                st.json(_dbr.get("_skills") or [])
+
         # ── Summary bar ───────────────────────────────────────────────────────
         _rp_no_comment = sum(1 for r in _rp_data if not r["comment"])
         _rp_short      = sum(1 for r in _rp_data if r["comment"] and len(r["comment"]) < _rp_threshold)
