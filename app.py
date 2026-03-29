@@ -3240,34 +3240,32 @@ with tab7:
                             unsafe_allow_html=True,
                         )
 
-        # ── Скачать отчёты для проверки нейронкой ─────────────────────────────
+        # ── Скачать отчёты для проверки нейронкой (Markdown) ─────────────────
         if _rp_data:
-            _dl_lines = []
-            _cur_teacher = None
-            _cur_lesson = None
+            def _md_cell(s: str) -> str:
+                return str(s or "").replace("|", "｜").replace("\n", " ").replace("\r", "")
+            _dl_lines = [
+                "| Преподаватель | Дата | Предмет | Тип | Ученик | Оценка | Комментарий |",
+                "|---|---|---|---|---|---|---|",
+            ]
             for _rec in sorted(_rp_data, key=lambda x: (x["teacher"], x["date"], x["subject"], x["student"])):
-                if _rec["teacher"] != _cur_teacher:
-                    _cur_teacher = _rec["teacher"]
-                    _dl_lines.append(f"\n{'='*60}")
-                    _dl_lines.append(f"ПРЕПОДАВАТЕЛЬ: {_cur_teacher}")
-                    _cur_lesson = None
-                lesson_key = (_rec["date"], _rec["subject"])
-                if lesson_key != _cur_lesson:
-                    _cur_lesson = lesson_key
-                    try:
-                        _dl_d = datetime.strptime(_rec["date"], "%Y-%m-%d").strftime("%d.%m.%Y")
-                    except Exception:
-                        _dl_d = _rec["date"]
-                    _dl_lines.append(f"\n  Занятие: {_dl_d} | {_rec['subject']}")
-                    if _rec["test_type"]:
-                        _dl_lines[-1] += f" | {_rec['test_type']}"
-                _grade_part = f" | Оценка: {_rec['grade']}" if _rec["grade"] else ""
-                _dl_lines.append(f"    • {_rec['student']}{_grade_part}")
-                _dl_lines.append(f"      Комментарий: {_rec['comment'] or '—'}")
-            _dl_text = "\n".join(_dl_lines).strip()
+                try:
+                    _dl_d = datetime.strptime(_rec["date"], "%Y-%m-%d").strftime("%d.%m.%Y")
+                except Exception:
+                    _dl_d = _rec["date"]
+                _dl_lines.append(
+                    f"| {_md_cell(_rec['teacher'])} "
+                    f"| {_dl_d} "
+                    f"| {_md_cell(_rec['subject'])} "
+                    f"| {_md_cell(_rec['test_type'])} "
+                    f"| {_md_cell(_rec['student'])} "
+                    f"| {_md_cell(_rec['grade'])} "
+                    f"| {_md_cell(_rec['comment'])} |"
+                )
+            _dl_text = "\n".join(_dl_lines)
             st.download_button(
-                label="⬇ Скачать отчёты (.txt)",
+                label="⬇ Скачать отчёты (.md)",
                 data=_dl_text,
-                file_name=f"reports_{_rp_from_str}_{_rp_to_str}.txt",
-                mime="text/plain",
+                file_name=f"reports_{_rp_from_str}_{_rp_to_str}.md",
+                mime="text/markdown",
             )
