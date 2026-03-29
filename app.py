@@ -1249,7 +1249,7 @@ subdomain    = _read_secret("subdomain")    or cfg.get("subdomain", "matrix")
 api_key      = _read_secret("api_key")      or cfg.get("api_key", "")
 pachca_token = _read_secret("pachca_token") or cfg.get("pachca_token", "")
 
-_title_col, _dates_col, _gear_col = st.columns([4, 2.5, 0.7])
+_title_col, _gear_col = st.columns([5, 0.7])
 
 with _title_col:
     _sb_check, _sb_check_err = _get_supabase_client()
@@ -1269,13 +1269,6 @@ with _title_col:
         f'## 📋 Проверка отчётов HolliHop{_status_badge}',
         unsafe_allow_html=True,
     )
-
-with _dates_col:
-    _dc1, _dc2 = st.columns(2)
-    with _dc1:
-        date_from_val = st.date_input("С", value=date.today() - timedelta(days=7))
-    with _dc2:
-        date_to_val = st.date_input("По", value=date.today())
 
 with _gear_col:
     st.markdown('<div style="height:1.75rem"></div>', unsafe_allow_html=True)
@@ -1453,11 +1446,9 @@ supabase_key = "eyJ..."
                 })
                 st.success("✅ Сохранено!")
 
-DATE_FROM = date_from_val.strftime("%Y-%m-%d")
-DATE_TO   = date_to_val.strftime("%Y-%m-%d")
 BASE_URL  = f"https://{subdomain}.t8s.ru/Api/V2"
 
-tab4, tab5, tab1, tab2, tab3, tab6 = st.tabs(["📚 История", "📊 Статистика", "📥 Загрузить данные", "✉️ Сообщения", "📤 Отправить", "📢 Рассылка"])
+tab4, tab5, tab1, tab2, tab3, tab6, tab7 = st.tabs(["📚 История", "📊 Статистика", "📥 Загрузить данные", "✉️ Сообщения", "📤 Отправить", "📢 Рассылка", "📑 Отчёты"])
 
 
 # Load history once per render — reused across Tab 4 and Tab 5
@@ -1468,15 +1459,20 @@ _all_history: list = load_history()
 # ─────────────────────────────────────────────────────────────────────────────
 
 with tab1:
-    col_btn, col_hint = st.columns([1, 3])
-    with col_btn:
-        load_btn = st.button("🔄 Загрузить данные", type="primary", use_container_width=True)
-    with col_hint:
-        st.markdown(
-            f'<div class="info-bar">Период:&nbsp;<b>{fmt_date(DATE_FROM)} — {fmt_date(DATE_TO)}</b>'
-            f'&nbsp;&nbsp;·&nbsp;&nbsp;HolliHop:&nbsp;<b>{subdomain}.t8s.ru</b></div>',
-            unsafe_allow_html=True,
-        )
+    _t1c1, _t1c2, _t1c3 = st.columns([2, 2, 1])
+    date_from_val = _t1c1.date_input("Период с", value=date.today() - timedelta(days=7), key="t1_date_from")
+    date_to_val   = _t1c2.date_input("по",       value=date.today(),                     key="t1_date_to")
+    DATE_FROM = date_from_val.strftime("%Y-%m-%d")
+    DATE_TO   = date_to_val.strftime("%Y-%m-%d")
+    with _t1c3:
+        st.markdown('<div style="height:1.75rem"></div>', unsafe_allow_html=True)
+        load_btn = st.button("🔄 Загрузить", type="primary", use_container_width=True)
+
+    st.markdown(
+        f'<div class="info-bar">Период:&nbsp;<b>{fmt_date(DATE_FROM)} — {fmt_date(DATE_TO)}</b>'
+        f'&nbsp;&nbsp;·&nbsp;&nbsp;HolliHop:&nbsp;<b>{subdomain}.t8s.ru</b></div>',
+        unsafe_allow_html=True,
+    )
 
     if load_btn:
         if not api_key:
@@ -3003,3 +2999,116 @@ with tab6:
 
                 if fail_list:
                     st.warning("Не найдены в Pachca:\n" + "\n".join(f"• {nm}: {reason}" for nm, reason in fail_list))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  TAB 7 — ОТЧЁТЫ
+# ─────────────────────────────────────────────────────────────────────────────
+
+with tab7:
+    st.subheader("📑 Отчёты преподавателей")
+
+    _rp_c1, _rp_c2, _rp_c3 = st.columns([2, 2, 1])
+    _rp_date_from = _rp_c1.date_input("Период с", value=date.today() - timedelta(days=7), key="rp_date_from")
+    _rp_date_to   = _rp_c2.date_input("по",       value=date.today(),                     key="rp_date_to")
+    with _rp_c3:
+        st.markdown('<div style="height:1.75rem"></div>', unsafe_allow_html=True)
+        _rp_load_btn = st.button("🔍 Загрузить", type="primary", use_container_width=True, key="rp_load")
+
+    _rp_from_str = _rp_date_from.strftime("%Y-%m-%d")
+    _rp_to_str   = _rp_date_to.strftime("%Y-%m-%d")
+
+    # Load or use cached data
+    _rp_cache_key = f"rp_data_{_rp_from_str}_{_rp_to_str}"
+    if _rp_load_btn:
+        if not api_key:
+            st.error("Укажи API ключ HolliHop в настройках ⚙️")
+        elif _rp_from_str > _rp_to_str:
+            st.error("Дата «С» должна быть раньше даты «По»!")
+        else:
+            with st.status(f"Загружаю отчёты за {_rp_from_str} — {_rp_to_str}…", expanded=True) as _rp_status:
+                st.write("📚 Учебные единицы…")
+                _rp_eu_list = api_paginated(BASE_URL, api_key, "GetEdUnits", "EdUnits", params={
+                    "types": "Group,MiniGroup,Individual",
+                    "dateFrom": _rp_from_str, "dateTo": _rp_to_str, "queryDays": "true",
+                })
+                _rp_eu_map = {}
+                for _eu in _rp_eu_list:
+                    _eu_id, _t_names = _eu["Id"], []
+                    for _si in _eu.get("ScheduleItems", []):
+                        for _tn in _si.get("Teachers", []):
+                            if _tn not in _t_names:
+                                _t_names.append(_tn)
+                    _rp_eu_map[_eu_id] = {
+                        "name":     _eu.get("Name", "—"),
+                        "teachers": _t_names,
+                    }
+                st.write(f"   → {len(_rp_eu_list)} учебных единиц")
+
+                st.write("📝 Результаты тестов (отчёты)…")
+                _rp_raw = load_test_results(BASE_URL, api_key, _rp_from_str, _rp_to_str)
+                st.write(f"   → {len(_rp_raw)} записей")
+
+                # Build enriched rows
+                _rp_rows = []
+                for _r in _rp_raw:
+                    _eu_info = _rp_eu_map.get(_r.get("EdUnitId"), {})
+                    _rp_rows.append({
+                        "Дата":           _r.get("Date", ""),
+                        "Преподаватель":  ", ".join(_eu_info.get("teachers", ["—"])) or "—",
+                        "Предмет":        _eu_info.get("name", "—"),
+                        "Ученик":         (_r.get("StudentName") or _r.get("ClientName")
+                                           or str(_r.get("StudentClientId", "—"))),
+                        "Оценка":         _r.get("Mark") if _r.get("Mark") is not None else
+                                          _r.get("Score") if _r.get("Score") is not None else "—",
+                        "Комментарий":    (_r.get("Comment") or _r.get("Description") or ""),
+                    })
+
+                st.session_state[_rp_cache_key] = _rp_rows
+                _rp_status.update(label=f"✅ Загружено {len(_rp_rows)} записей", state="complete")
+
+    _rp_data = st.session_state.get(_rp_cache_key, [])
+
+    if not _rp_data and not _rp_load_btn:
+        st.info("Выбери период и нажми «Загрузить».")
+    elif _rp_data:
+        _rp_df = pd.DataFrame(_rp_data)
+
+        st.markdown(f'<div class="info-bar">Загружено: <b>{len(_rp_df)}</b> отчётов · '
+                    f'Период: <b>{_rp_from_str} — {_rp_to_str}</b></div>', unsafe_allow_html=True)
+
+        # ── Фильтры ───────────────────────────────────────────────────────────
+        _rp_f1, _rp_f2, _rp_f3 = st.columns(3)
+        _rp_all_teachers = sorted(_rp_df["Преподаватель"].unique())
+        _rp_teacher_f = _rp_f1.selectbox("Преподаватель", ["Все"] + _rp_all_teachers, key="rp_f_teacher")
+        _rp_all_subjects = sorted(_rp_df["Предмет"].unique())
+        _rp_subject_f = _rp_f2.selectbox("Предмет", ["Все"] + _rp_all_subjects, key="rp_f_subject")
+        _rp_grade_f = _rp_f3.selectbox(
+            "Оценка",
+            ["Все", "Есть оценка", "Нет оценки"],
+            key="rp_f_grade",
+        )
+
+        _rp_search = st.text_input("🔍 Поиск по ученику", key="rp_search", placeholder="Введи ФИО…")
+
+        # Apply filters
+        _rp_filtered = _rp_df.copy()
+        if _rp_teacher_f != "Все":
+            _rp_filtered = _rp_filtered[_rp_filtered["Преподаватель"] == _rp_teacher_f]
+        if _rp_subject_f != "Все":
+            _rp_filtered = _rp_filtered[_rp_filtered["Предмет"] == _rp_subject_f]
+        if _rp_grade_f == "Есть оценка":
+            _rp_filtered = _rp_filtered[_rp_filtered["Оценка"] != "—"]
+        elif _rp_grade_f == "Нет оценки":
+            _rp_filtered = _rp_filtered[_rp_filtered["Оценка"] == "—"]
+        if _rp_search:
+            _rp_filtered = _rp_filtered[
+                _rp_filtered["Ученик"].str.contains(_rp_search, case=False, na=False)
+            ]
+
+        st.caption(f"Показано: {len(_rp_filtered)} из {len(_rp_df)}")
+        st.dataframe(
+            _rp_filtered.sort_values("Дата", ascending=False),
+            use_container_width=True,
+            hide_index=True,
+        )
