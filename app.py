@@ -1299,6 +1299,15 @@ with _gear_col:
         reminder_days   = st.number_input("Дней до дедлайна", min_value=1, max_value=14,
                                           value=int(cfg.get("reminder_days", 1)), key="cfg_rdays")
 
+        st.markdown("**📑 Отчёты**")
+        short_comment_threshold = st.number_input(
+            "Порог «короткого» отчёта (символов)",
+            min_value=50, max_value=2000,
+            value=int(cfg.get("short_comment_threshold", 400)),
+            step=50, key="cfg_short_threshold",
+            help="Отчёты короче этого значения помечаются 🟡",
+        )
+
         st.markdown("**👤 Проверяющий**")
         _default_reviewer = st.session_state.get("billyboba_user") or cfg.get("reviewer_name", "Артём")
         reviewer_name = st.text_input("Имя", value=_default_reviewer, key="cfg_reviewer")
@@ -1456,6 +1465,7 @@ supabase_key = "eyJ..."
                     "reminder_days": reminder_days, "sheet_id": sheet_id,
                     "sheet_name": sheet_name, "reviewer_name": reviewer_name,
                     "creds_json": creds_json,
+                    "short_comment_threshold": short_comment_threshold,
                 })
                 st.success("✅ Сохранено!")
 
@@ -3078,18 +3088,17 @@ def _rp_comment(r):
             return str(_v).strip()
     return ""
 
-def _rp_quality(comment: str, grade: str):
+def _rp_quality(comment: str, grade: str, threshold: int = 400):
     """Return (icon, label, css_color) quality indicator."""
     if not comment:
         return "🔴", "Нет комментария", "#f87171"
-    if len(comment) < 400:
+    if len(comment) < threshold:
         return "🟡", "Короткий комментарий", "#fbbf24"
-    if not grade:
-        return "🟢", "Без оценки", "#34d399"
     return "🟢", "OK", "#34d399"
 
 with tab7:
     st.subheader("📑 Отчёты преподавателей")
+    _rp_threshold = int(st.session_state.get("cfg_short_threshold", cfg.get("short_comment_threshold", 400)))
 
     _rp_c1, _rp_c2, _rp_c3 = st.columns([2, 2, 1])
     _rp_date_from = _rp_c1.date_input("Период с", value=date.today() - timedelta(days=7), key="rp_date_from")
@@ -3155,7 +3164,7 @@ with tab7:
     elif _rp_data:
         # ── Summary bar ───────────────────────────────────────────────────────
         _rp_no_comment = sum(1 for r in _rp_data if not r["comment"])
-        _rp_short      = sum(1 for r in _rp_data if r["comment"] and len(r["comment"]) < 400)
+        _rp_short      = sum(1 for r in _rp_data if r["comment"] and len(r["comment"]) < _rp_threshold)
         st.markdown(
             f'<div class="info-bar">'
             f'Всего: <b>{len(_rp_data)}</b> &nbsp;·&nbsp; '
@@ -3179,7 +3188,7 @@ with tab7:
         if _rp_qf == "🔴 Нет комментария":
             _rp_filtered = [r for r in _rp_filtered if not r["comment"]]
         elif _rp_qf == "🟡 Короткий":
-            _rp_filtered = [r for r in _rp_filtered if r["comment"] and len(r["comment"]) < 400]
+            _rp_filtered = [r for r in _rp_filtered if r["comment"] and len(r["comment"]) < _rp_threshold]
         elif _rp_qf == "🟢 OK":
             _rp_filtered = [r for r in _rp_filtered if r["comment"] and len(r["comment"]) >= 25]
         if _rp_search:
@@ -3196,7 +3205,7 @@ with tab7:
 
         for _teacher, _t_records in _rp_by_teacher.items():
             _t_bad  = sum(1 for r in _t_records if not r["comment"])
-            _t_warn = sum(1 for r in _t_records if r["comment"] and len(r["comment"]) < 400)
+            _t_warn = sum(1 for r in _t_records if r["comment"] and len(r["comment"]) < _rp_threshold)
             _t_badge = (f"  🔴 {_t_bad} без комментария" if _t_bad else "") + \
                        (f"  🟡 {_t_warn} коротких" if _t_warn else "")
             _t_label = f"**{_teacher}** — {len(_t_records)} отчётов{_t_badge}"
@@ -3212,7 +3221,7 @@ with tab7:
                     except Exception:
                         _d_label = _d
                     _l_bad  = sum(1 for r in _lesson_recs if not r["comment"])
-                    _l_warn = sum(1 for r in _lesson_recs if r["comment"] and len(r["comment"]) < 400)
+                    _l_warn = sum(1 for r in _lesson_recs if r["comment"] and len(r["comment"]) < _rp_threshold)
                     _l_color = "#f87171" if _l_bad else "#fbbf24" if _l_warn else "#34d399"
                     _test_types = sorted({r["test_type"] for r in _lesson_recs if r["test_type"]})
                     _tt_str = f' &nbsp;·&nbsp; <i style="color:#a78bfa;">{", ".join(_test_types)}</i>' if _test_types else ""
@@ -3226,7 +3235,7 @@ with tab7:
                         unsafe_allow_html=True,
                     )
                     for _rec in _lesson_recs:
-                        _icon, _, _color = _rp_quality(_rec["comment"], _rec["grade"])
+                        _icon, _, _color = _rp_quality(_rec["comment"], _rec["grade"], _rp_threshold)
                         _grade_str = _rec["grade"] if _rec["grade"] else ""
                         _comment_str = _rec["comment"] if _rec["comment"] else "*— комментарий отсутствует —*"
                         st.markdown(
