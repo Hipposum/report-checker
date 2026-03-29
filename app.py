@@ -2313,7 +2313,7 @@ with tab4:
                     # resolved_keys: teacher+date pairs where report was actually written
                     _rc_resolved = set()
                     for (_eu_r, _d_r, _) in _rc_filled:
-                        for _t_r in _rc_eu_map.get(_eu_r, {}).get("teachers", []):
+                        for _t_r in _rc_eu_map.get(_eu_r, []):
                             _rc_resolved.add((_t_r, _d_r, "no_report"))
                     upsert_history(_rc_errors, _rc_from, _rc_to, reviewer_name,
                                    resolved_keys=_rc_resolved)
