@@ -3139,13 +3139,11 @@ with tab7:
         # ── Summary bar ───────────────────────────────────────────────────────
         _rp_no_comment = sum(1 for r in _rp_data if not r["comment"])
         _rp_short      = sum(1 for r in _rp_data if r["comment"] and len(r["comment"]) < 25)
-        _rp_no_grade   = sum(1 for r in _rp_data if not r["grade"])
         st.markdown(
             f'<div class="info-bar">'
             f'Всего: <b>{len(_rp_data)}</b> &nbsp;·&nbsp; '
             f'🔴 Без комментария: <b>{_rp_no_comment}</b> &nbsp;·&nbsp; '
-            f'🟡 Короткий: <b>{_rp_short}</b> &nbsp;·&nbsp; '
-            f'Без оценки: <b>{_rp_no_grade}</b>'
+            f'🟡 Короткий: <b>{_rp_short}</b>'
             f'</div>', unsafe_allow_html=True)
 
         # ── Фильтры ───────────────────────────────────────────────────────────
@@ -3185,7 +3183,7 @@ with tab7:
             _t_badge = (f"  🔴 {_t_bad} без комментария" if _t_bad else "") + \
                        (f"  🟡 {_t_warn} коротких" if _t_warn else "")
             _t_label = f"**{_teacher}** — {len(_t_records)} отчётов{_t_badge}"
-            with st.expander(_t_label, expanded=(_t_bad > 0 or _t_warn > 0)):
+            with st.expander(_t_label, expanded=True):
                 # Group by date+subject within teacher
                 _rp_by_lesson = _rpdd(list)
                 for _r in _t_records:
@@ -3212,7 +3210,7 @@ with tab7:
                     )
                     for _rec in _lesson_recs:
                         _icon, _, _color = _rp_quality(_rec["comment"], _rec["grade"])
-                        _grade_str = f"**{_rec['grade']}**" if _rec["grade"] else "*нет оценки*"
+                        _grade_str = f"**{_rec['grade']}**" if _rec["grade"] else ""
                         _comment_str = _rec["comment"] if _rec["comment"] else "*— комментарий отсутствует —*"
                         st.markdown(
                             f'<div style="display:flex; gap:10px; align-items:flex-start; '
