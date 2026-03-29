@@ -464,7 +464,7 @@ def upsert_history(all_errors: list, period_from: str, period_to: str, reviewer:
             # no_report errors are NOT auto-closed: teacher may have cancelled the lesson
             # to avoid writing a report — reviewer must verify manually.
             rec = rec.copy()
-            if rec["status"] in ("open", "message_sent"):
+            if rec["status"] in ("open", "message_sent", "pass_set"):
                 rec.update({"status": "handled", "updated_at": now})
         result[key] = rec
 
