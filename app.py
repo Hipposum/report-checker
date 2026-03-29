@@ -469,15 +469,15 @@ def upsert_history(all_errors: list, period_from: str, period_to: str, reviewer:
             continue   # already handled above
         if period_from <= rec["date"] <= period_to:
             rec = rec.copy()
-            if rec["status"] in ("open", "message_sent"):
-                # Always close open/sent errors when they disappear
-                rec.update({"status": "handled", "updated_at": now})
-            elif rec["status"] == "pass_set":
-                # pass_set closes to handled ONLY when confirmed resolved (report written).
-                # If error disappeared for another reason (e.g. lesson cancelled/отмена),
-                # the record stays as pass_set so reviewer can investigate.
-                if key in resolved_keys:
+            # A record is genuinely resolved when:
+            # - error_type is no_abs_comment (teacher added absence comment — real fix), OR
+            # - key is in resolved_keys (report was actually written, confirmed by API)
+            # If neither — lesson was likely cancelled (отмена): keep current status visible.
+            _genuine = (rec.get("error_type") == "no_abs_comment") or (key in resolved_keys)
+            if rec["status"] in ("open", "message_sent", "pass_set"):
+                if _genuine:
                     rec.update({"status": "handled", "updated_at": now})
+                # else: keep current status — reviewer should verify the cancellation
         result[key] = rec
 
     save_history(list(result.values()))
