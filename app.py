@@ -414,11 +414,19 @@ def save_history(records: list):
             json.dump(records, f, ensure_ascii=False, indent=2, default=str)
 
 
-def upsert_history(all_errors: list, period_from: str, period_to: str, reviewer: str):
-    """Add/update history records. Global dedup by (teacher, date, error_type) — no duplicates across periods."""
+def upsert_history(all_errors: list, period_from: str, period_to: str, reviewer: str,
+                   resolved_keys: set = None):
+    """Add/update history records. Global dedup by (teacher, date, error_type).
+
+    resolved_keys: set of (teacher, date, error_type) confirmed resolved by a real fix
+    (e.g. report actually written). Used to decide whether pass_set → handled.
+    If None, only open/message_sent are auto-closed.
+    """
     import uuid as _uuid
     records = load_history()
     now = datetime.now().isoformat(timespec="seconds")
+    if resolved_keys is None:
+        resolved_keys = set()
 
     # Global index — one record per (teacher, date, error_type) regardless of check period
     existing = {(r["teacher"], r["date"], r["error_type"]): r for r in records}
@@ -460,12 +468,16 @@ def upsert_history(all_errors: list, period_from: str, period_to: str, reviewer:
         if key in result:
             continue   # already handled above
         if period_from <= rec["date"] <= period_to:
-            # Was in range but error gone — auto-close ONLY absence errors (teacher added comment).
-            # no_report errors are NOT auto-closed: teacher may have cancelled the lesson
-            # to avoid writing a report — reviewer must verify manually.
             rec = rec.copy()
-            if rec["status"] in ("open", "message_sent", "pass_set"):
+            if rec["status"] in ("open", "message_sent"):
+                # Always close open/sent errors when they disappear
                 rec.update({"status": "handled", "updated_at": now})
+            elif rec["status"] == "pass_set":
+                # pass_set closes to handled ONLY when confirmed resolved (report written).
+                # If error disappeared for another reason (e.g. lesson cancelled/отмена),
+                # the record stays as pass_set so reviewer can investigate.
+                if key in resolved_keys:
+                    rec.update({"status": "handled", "updated_at": now})
         result[key] = rec
 
     save_history(list(result.values()))
@@ -1611,9 +1623,16 @@ with tab1:
                     "DATE_TO":         DATE_TO,
                 })
 
+                # Build resolved_keys: (teacher, date, "no_report") where report was actually written
+                _resolved_keys = set()
+                for (_eu_id_r, _d_r, _) in filled_reports:
+                    for _t_r in eu_map.get(_eu_id_r, {}).get("teachers", []):
+                        _resolved_keys.add((_t_r, _d_r, "no_report"))
+
                 # Save to history
                 if all_errors:
-                    upsert_history(all_errors, DATE_FROM, DATE_TO, reviewer_name)
+                    upsert_history(all_errors, DATE_FROM, DATE_TO, reviewer_name,
+                                   resolved_keys=_resolved_keys)
 
                 n_nr = sum(1 for e in all_errors if e["error_type"] == "no_report")
                 n_nc = sum(1 for e in all_errors if e["error_type"] == "no_abs_comment")
@@ -2291,7 +2310,13 @@ with tab4:
                                 "error_type": "no_abs_comment",
                                 "error_description": "Нет комментария к пропуску",
                                 "count": _dc[_d], "students": sorted(set(_rc_nc_st[_t][_d]))})
-                    upsert_history(_rc_errors, _rc_from, _rc_to, reviewer_name)
+                    # resolved_keys: teacher+date pairs where report was actually written
+                    _rc_resolved = set()
+                    for (_eu_r, _d_r, _) in _rc_filled:
+                        for _t_r in _rc_eu_map.get(_eu_r, {}).get("teachers", []):
+                            _rc_resolved.add((_t_r, _d_r, "no_report"))
+                    upsert_history(_rc_errors, _rc_from, _rc_to, reviewer_name,
+                                   resolved_keys=_rc_resolved)
                     _rc_status.update(label=f"✅ Готово — найдено {len(_rc_errors)} ошибок за период", state="complete")
                 st.rerun()
 
