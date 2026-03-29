@@ -3032,16 +3032,21 @@ with tab6:
 
 def _rp_grade(r):
     """Extract grade from raw API record."""
-    # Skills is an array of {SkillName, Mark, MaxMark, ...}
+    # Skills is an array of {SkillName, Score, MaxScore, ValidScore, ...}
     skills = r.get("Skills") or []
     if skills:
         parts = []
         for sk in skills:
             name = sk.get("SkillName") or sk.get("Name") or ""
-            mark = sk.get("Mark") if sk.get("Mark") is not None else sk.get("Value")
-            max_mark = sk.get("MaxMark") or sk.get("Max")
-            if mark is not None:
-                parts.append(f"{name}: {mark}" + (f"/{max_mark}" if max_mark else "") if name else str(mark))
+            # ValidScore is the actual earned score; Score is raw; MaxScore is max possible
+            score = sk.get("ValidScore") if sk.get("ValidScore") is not None else sk.get("Score")
+            max_score = sk.get("MaxScore")
+            if score is not None:
+                val = f"{score}/{max_score}" if max_score is not None else str(score)
+                # Skip SkillName if it's just "Общий" and there's only one skill
+                if name and not (len(skills) == 1 and name == "Общий"):
+                    val = f"{name}: {val}"
+                parts.append(val)
         if parts:
             return " · ".join(parts)
     for _f in ("Mark", "Score", "Result", "Grade", "Value", "TestResult", "MarkValue"):
