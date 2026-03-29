@@ -3030,6 +3030,33 @@ with tab6:
 #  TAB 7 — ОТЧЁТЫ
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _rp_grade(r):
+    """Extract grade from raw API record — try all known field names."""
+    for _f in ("Mark", "Score", "Result", "Grade", "Value", "TestResult", "MarkValue"):
+        _v = r.get(_f)
+        if _v is not None and str(_v).strip() not in ("", "0", "None"):
+            return str(_v)
+    return ""
+
+def _rp_comment(r):
+    """Extract comment/report text — try all known field names."""
+    for _f in ("Comment", "Description", "Note", "Notes", "LessonDescription",
+               "TopicDescription", "Homework", "Task", "Text", "Content"):
+        _v = r.get(_f)
+        if _v and str(_v).strip():
+            return str(_v).strip()
+    return ""
+
+def _rp_quality(comment: str, grade: str):
+    """Return (icon, label, css_color) quality indicator."""
+    if not comment:
+        return "🔴", "Нет комментария", "#f87171"
+    if len(comment) < 25:
+        return "🟡", "Короткий комментарий", "#fbbf24"
+    if not grade:
+        return "🟢", "Без оценки", "#34d399"
+    return "🟢", "OK", "#34d399"
+
 with tab7:
     st.subheader("📑 Отчёты преподавателей")
 
@@ -3043,8 +3070,8 @@ with tab7:
     _rp_from_str = _rp_date_from.strftime("%Y-%m-%d")
     _rp_to_str   = _rp_date_to.strftime("%Y-%m-%d")
 
-    # Load or use cached data
     _rp_cache_key = f"rp_data_{_rp_from_str}_{_rp_to_str}"
+
     if _rp_load_btn:
         if not api_key:
             st.error("Укажи API ключ HolliHop в настройках ⚙️")
@@ -3064,29 +3091,27 @@ with tab7:
                         for _tn in _si.get("Teachers", []):
                             if _tn not in _t_names:
                                 _t_names.append(_tn)
-                    _rp_eu_map[_eu_id] = {
-                        "name":     _eu.get("Name", "—"),
-                        "teachers": _t_names,
-                    }
+                    _rp_eu_map[_eu_id] = {"name": _eu.get("Name", "—"), "teachers": _t_names}
                 st.write(f"   → {len(_rp_eu_list)} учебных единиц")
 
-                st.write("📝 Результаты тестов (отчёты)…")
+                st.write("📝 Отчёты…")
                 _rp_raw = load_test_results(BASE_URL, api_key, _rp_from_str, _rp_to_str)
                 st.write(f"   → {len(_rp_raw)} записей")
 
-                # Build enriched rows
                 _rp_rows = []
                 for _r in _rp_raw:
                     _eu_info = _rp_eu_map.get(_r.get("EdUnitId"), {})
+                    _grade   = _rp_grade(_r)
+                    _comment = _rp_comment(_r)
                     _rp_rows.append({
-                        "Дата":           _r.get("Date", ""),
-                        "Преподаватель":  ", ".join(_eu_info.get("teachers", ["—"])) or "—",
-                        "Предмет":        _eu_info.get("name", "—"),
-                        "Ученик":         (_r.get("StudentName") or _r.get("ClientName")
-                                           or str(_r.get("StudentClientId", "—"))),
-                        "Оценка":         _r.get("Mark") if _r.get("Mark") is not None else
-                                          _r.get("Score") if _r.get("Score") is not None else "—",
-                        "Комментарий":    (_r.get("Comment") or _r.get("Description") or ""),
+                        "date":        _r.get("Date", ""),
+                        "teacher":     ", ".join(_eu_info.get("teachers", [])) or "—",
+                        "subject":     _eu_info.get("name", "—"),
+                        "student":     (_r.get("StudentName") or _r.get("ClientName")
+                                        or str(_r.get("StudentClientId", "—"))),
+                        "grade":       _grade,
+                        "comment":     _comment,
+                        "_raw_keys":   list(_r.keys()),  # for debugging unknown fields
                     })
 
                 st.session_state[_rp_cache_key] = _rp_rows
@@ -3097,43 +3122,96 @@ with tab7:
     if not _rp_data and not _rp_load_btn:
         st.info("Выбери период и нажми «Загрузить».")
     elif _rp_data:
-        _rp_df = pd.DataFrame(_rp_data)
-
-        st.markdown(f'<div class="info-bar">Загружено: <b>{len(_rp_df)}</b> отчётов · '
-                    f'Период: <b>{_rp_from_str} — {_rp_to_str}</b></div>', unsafe_allow_html=True)
+        # ── Summary bar ───────────────────────────────────────────────────────
+        _rp_no_comment = sum(1 for r in _rp_data if not r["comment"])
+        _rp_short      = sum(1 for r in _rp_data if r["comment"] and len(r["comment"]) < 25)
+        _rp_no_grade   = sum(1 for r in _rp_data if not r["grade"])
+        st.markdown(
+            f'<div class="info-bar">'
+            f'Всего: <b>{len(_rp_data)}</b> &nbsp;·&nbsp; '
+            f'🔴 Без комментария: <b>{_rp_no_comment}</b> &nbsp;·&nbsp; '
+            f'🟡 Короткий: <b>{_rp_short}</b> &nbsp;·&nbsp; '
+            f'Без оценки: <b>{_rp_no_grade}</b>'
+            f'</div>', unsafe_allow_html=True)
 
         # ── Фильтры ───────────────────────────────────────────────────────────
-        _rp_f1, _rp_f2, _rp_f3 = st.columns(3)
-        _rp_all_teachers = sorted(_rp_df["Преподаватель"].unique())
-        _rp_teacher_f = _rp_f1.selectbox("Преподаватель", ["Все"] + _rp_all_teachers, key="rp_f_teacher")
-        _rp_all_subjects = sorted(_rp_df["Предмет"].unique())
-        _rp_subject_f = _rp_f2.selectbox("Предмет", ["Все"] + _rp_all_subjects, key="rp_f_subject")
-        _rp_grade_f = _rp_f3.selectbox(
-            "Оценка",
-            ["Все", "Есть оценка", "Нет оценки"],
-            key="rp_f_grade",
-        )
-
-        _rp_search = st.text_input("🔍 Поиск по ученику", key="rp_search", placeholder="Введи ФИО…")
+        _rp_f1, _rp_f2, _rp_f3 = st.columns([2, 2, 2])
+        _rp_teachers_all = sorted({r["teacher"] for r in _rp_data})
+        _rp_tf = _rp_f1.selectbox("Преподаватель", ["Все"] + _rp_teachers_all, key="rp_f_teacher")
+        _rp_qf = _rp_f2.selectbox("Качество отчёта",
+                                   ["Все", "🔴 Нет комментария", "🟡 Короткий", "🟢 OK"],
+                                   key="rp_f_quality")
+        _rp_search = _rp_f3.text_input("Поиск по ученику", key="rp_search", placeholder="Введи ФИО…")
 
         # Apply filters
-        _rp_filtered = _rp_df.copy()
-        if _rp_teacher_f != "Все":
-            _rp_filtered = _rp_filtered[_rp_filtered["Преподаватель"] == _rp_teacher_f]
-        if _rp_subject_f != "Все":
-            _rp_filtered = _rp_filtered[_rp_filtered["Предмет"] == _rp_subject_f]
-        if _rp_grade_f == "Есть оценка":
-            _rp_filtered = _rp_filtered[_rp_filtered["Оценка"] != "—"]
-        elif _rp_grade_f == "Нет оценки":
-            _rp_filtered = _rp_filtered[_rp_filtered["Оценка"] == "—"]
+        _rp_filtered = _rp_data[:]
+        if _rp_tf != "Все":
+            _rp_filtered = [r for r in _rp_filtered if r["teacher"] == _rp_tf]
+        if _rp_qf == "🔴 Нет комментария":
+            _rp_filtered = [r for r in _rp_filtered if not r["comment"]]
+        elif _rp_qf == "🟡 Короткий":
+            _rp_filtered = [r for r in _rp_filtered if r["comment"] and len(r["comment"]) < 25]
+        elif _rp_qf == "🟢 OK":
+            _rp_filtered = [r for r in _rp_filtered if r["comment"] and len(r["comment"]) >= 25]
         if _rp_search:
-            _rp_filtered = _rp_filtered[
-                _rp_filtered["Ученик"].str.contains(_rp_search, case=False, na=False)
-            ]
+            _rp_filtered = [r for r in _rp_filtered
+                            if _rp_search.lower() in r["student"].lower()]
 
-        st.caption(f"Показано: {len(_rp_filtered)} из {len(_rp_df)}")
-        st.dataframe(
-            _rp_filtered.sort_values("Дата", ascending=False),
-            use_container_width=True,
-            hide_index=True,
-        )
+        st.caption(f"Показано: {len(_rp_filtered)} записей")
+
+        # ── Группировка по преподавателю ──────────────────────────────────────
+        from collections import defaultdict as _rpdd
+        _rp_by_teacher = _rpdd(list)
+        for _r in sorted(_rp_filtered, key=lambda x: (x["teacher"], x["date"])):
+            _rp_by_teacher[_r["teacher"]].append(_r)
+
+        for _teacher, _t_records in _rp_by_teacher.items():
+            _t_bad  = sum(1 for r in _t_records if not r["comment"])
+            _t_warn = sum(1 for r in _t_records if r["comment"] and len(r["comment"]) < 25)
+            _t_badge = (f"  🔴 {_t_bad} без комментария" if _t_bad else "") + \
+                       (f"  🟡 {_t_warn} коротких" if _t_warn else "")
+            _t_label = f"**{_teacher}** — {len(_t_records)} отчётов{_t_badge}"
+            with st.expander(_t_label, expanded=(_t_bad > 0 or _t_warn > 0)):
+                # Group by date+subject within teacher
+                _rp_by_lesson = _rpdd(list)
+                for _r in _t_records:
+                    _rp_by_lesson[(_r["date"], _r["subject"])].append(_r)
+
+                for (_d, _subj), _lesson_recs in sorted(_rp_by_lesson.items()):
+                    try:
+                        _d_label = datetime.strptime(_d, "%Y-%m-%d").strftime("%d.%m.%Y")
+                    except Exception:
+                        _d_label = _d
+                    _l_bad  = sum(1 for r in _lesson_recs if not r["comment"])
+                    _l_warn = sum(1 for r in _lesson_recs if r["comment"] and len(r["comment"]) < 25)
+                    _l_color = "#f87171" if _l_bad else "#fbbf24" if _l_warn else "#34d399"
+                    st.markdown(
+                        f'<div style="margin:6px 0 4px 0; padding:6px 12px; '
+                        f'border-left:3px solid {_l_color}; '
+                        f'background:rgba(255,255,255,0.03); border-radius:0 8px 8px 0;">'
+                        f'<b>{_d_label}</b> &nbsp;·&nbsp; {_subj} '
+                        f'<span style="color:rgba(255,255,255,0.45); font-size:0.82rem;">'
+                        f'({len(_lesson_recs)} уч.)</span></div>',
+                        unsafe_allow_html=True,
+                    )
+                    for _rec in _lesson_recs:
+                        _icon, _, _color = _rp_quality(_rec["comment"], _rec["grade"])
+                        _grade_str = f"**{_rec['grade']}**" if _rec["grade"] else "*нет оценки*"
+                        _comment_str = _rec["comment"] if _rec["comment"] else "*— комментарий отсутствует —*"
+                        st.markdown(
+                            f'<div style="display:flex; gap:10px; align-items:flex-start; '
+                            f'padding:5px 8px 5px 16px; border-bottom:1px solid rgba(255,255,255,0.05);">'
+                            f'<span style="min-width:18px;">{_icon}</span>'
+                            f'<span style="min-width:220px; color:rgba(255,255,255,0.85);">{_rec["student"]}</span>'
+                            f'<span style="min-width:60px; color:#c4b5fd;">{_grade_str}</span>'
+                            f'<span style="color:rgba(255,255,255,0.6); font-size:0.88rem;">{_comment_str}</span>'
+                            f'</div>',
+                            unsafe_allow_html=True,
+                        )
+
+        # ── Debug: show raw API fields if grades/comments are empty ──────────
+        if _rp_data and all(not r["grade"] for r in _rp_data[:10]):
+            with st.expander("🛠 Отладка: поля API (первая запись)", expanded=False):
+                st.caption("Все оценки пустые — возможно, поле называется иначе в вашем HolliHop")
+                if _rp_data[0].get("_raw_keys"):
+                    st.code(str(_rp_data[0]["_raw_keys"]))
