@@ -2124,6 +2124,7 @@ with tab4:
         with fc4:
             st.markdown('<div style="height:1.75rem"></div>', unsafe_allow_html=True)
             if st.button("🔄 Обновить", use_container_width=True, key="hist_refresh"):
+                st.session_state["_hist_recheck"] = True
                 st.rerun()
 
         # ── Считаем открытые ──────────────────────────────────────────────────
@@ -2211,6 +2212,79 @@ with tab4:
                                          min_value=_hd_min, max_value=_hd_max, key="hf_date_to")
         _hdf = _h_date_from.strftime("%Y-%m-%d")
         _hdt = _h_date_to.strftime("%Y-%m-%d")
+
+        # ── Перепроверка данных из HolliHop ───────────────────────────────────
+        if st.session_state.pop("_hist_recheck", False):
+            if not api_key:
+                st.error("Укажи API ключ HolliHop в настройках!")
+            else:
+                _recheck_base = f"https://{subdomain}.t8s.ru/Api/V2"
+                with st.status(f"Проверяю HolliHop за {_hdf} — {_hdt}…", expanded=True) as _rc_status:
+                    st.write("👨‍🏫 Преподаватели…")
+                    _rc_teachers = api_paginated(_recheck_base, api_key, "GetTeachers", "Teachers")
+                    st.write("📚 Учебные единицы…")
+                    _rc_eu = api_paginated(_recheck_base, api_key, "GetEdUnits", "EdUnits", params={
+                        "types": "Group,MiniGroup,Individual",
+                        "dateFrom": _hdf, "dateTo": _hdt, "queryDays": "true",
+                    })
+                    _rc_eu_map = {}
+                    for _eu in _rc_eu:
+                        _eu_id, _t_names = _eu["Id"], []
+                        for _si in _eu.get("ScheduleItems", []):
+                            for _tn in _si.get("Teachers", []):
+                                if _tn not in _t_names:
+                                    _t_names.append(_tn)
+                        _rc_eu_map[_eu_id] = _t_names
+                    st.write("📋 Посещаемость…")
+                    _rc_eus = api_paginated(_recheck_base, api_key, "GetEdUnitStudents", "EdUnitStudents", params={
+                        "dateFrom": _hdf, "dateTo": _hdt, "queryDays": "true",
+                    })
+                    st.write("📝 Отчёты…")
+                    _rc_filled = {
+                        (r["EdUnitId"], r["Date"], r["StudentClientId"])
+                        for r in load_test_results(_recheck_base, api_key, _hdf, _hdt)
+                    }
+                    st.write("🔍 Анализирую…")
+                    from collections import defaultdict as _rcdd
+                    _rc_no_rep = _rcdd(lambda: _rcdd(int))
+                    _rc_no_cmt = _rcdd(lambda: _rcdd(int))
+                    _rc_nr_st  = _rcdd(lambda: _rcdd(list))
+                    _rc_nc_st  = _rcdd(lambda: _rcdd(list))
+                    for _eus in _rc_eus:
+                        _eu_id2  = _eus.get("EdUnitId")
+                        _sid     = _eus.get("StudentClientId")
+                        _sname   = (_eus.get("Name") or _eus.get("StudentName")
+                                    or _eus.get("ClientName") or str(_sid))
+                        _tnames  = _rc_eu_map.get(_eu_id2, ["Неизвестный"])
+                        for _day in _eus.get("Days", []):
+                            _d = _day.get("Date", "")
+                            if _d < _hdf or _d > _hdt:
+                                continue
+                            _is_pass = _day.get("Pass", False)
+                            _desc    = (_day.get("Description") or "").strip()
+                            if not _is_pass and (_eu_id2, _d, _sid) not in _rc_filled:
+                                for _t in _tnames:
+                                    _rc_no_rep[_t][_d] += 1
+                                    _rc_nr_st[_t][_d].append(_sname)
+                            if _is_pass and not _desc:
+                                for _t in _tnames:
+                                    _rc_no_cmt[_t][_d] += 1
+                                    _rc_nc_st[_t][_d].append(_sname)
+                    _rc_errors = []
+                    for _t, _dc in _rc_no_rep.items():
+                        for _d in sorted(_dc):
+                            _rc_errors.append({"date": _d, "teacher": _t,
+                                "error_type": "no_report", "error_description": "Нет отчёта",
+                                "count": _dc[_d], "students": sorted(set(_rc_nr_st[_t][_d]))})
+                    for _t, _dc in _rc_no_cmt.items():
+                        for _d in sorted(_dc):
+                            _rc_errors.append({"date": _d, "teacher": _t,
+                                "error_type": "no_abs_comment",
+                                "error_description": "Нет комментария к пропуску",
+                                "count": _dc[_d], "students": sorted(set(_rc_nc_st[_t][_d]))})
+                    upsert_history(_rc_errors, _hdf, _hdt, reviewer_name)
+                    _rc_status.update(label=f"✅ Готово — найдено {len(_rc_errors)} ошибок за период", state="complete")
+                st.rerun()
 
         # ── Применяем все фильтры одним проходом ──────────────────────────────
         _f_status_val = _STATUS_FILTER_MAP.get(f_status)
