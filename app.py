@@ -441,15 +441,15 @@ def _flag_report_dialog(rec: dict):
             "teacher":           rec["teacher"],
             "student_tag":       rec["student"],
             "error_type":        "bad_report",
-            "error_description": note.strip() if note.strip() else "Некорректный отчёт",
+            "error_description": "\n".join(filter(None, [
+                note.strip() if note.strip() else "Некорректный отчёт",
+                f"Отчёт: {rec['comment']}" if rec.get("comment") else "",
+            ])),
             "count":             1,
             "students":          [rec["student"]],
             "status":            "open",
             "reviewer":          _reviewer,
-            "reviewer_comment":  "\n\n".join(filter(None, [
-                note.strip(),
-                f"Отчёт ({rec['student']}):\n{rec['comment']}" if rec.get("comment") else "",
-            ])),
+            "reviewer_comment":  note.strip(),
             "updated_at":        now,
         }
         all_hist = load_history()
@@ -502,7 +502,6 @@ def _flag_teacher_dialog(teacher: str, records: list):
                 f"• {r['student']}: {r['comment']}" if r.get("comment") else f"• {r['student']}: —"
                 for r in _day_recs
             )
-            _reviewer_comment = "\n\n".join(filter(None, [note.strip(), f"Отчёты:\n{_reports_text}"]))
             new_recs.append({
                 "id":                str(_uuid.uuid4())[:8],
                 "checked_at":        now,
@@ -512,12 +511,12 @@ def _flag_teacher_dialog(teacher: str, records: list):
                 "teacher":           teacher,
                 "student_tag":       ", ".join(_day_students) if _day_students else "Все",
                 "error_type":        "bad_report",
-                "error_description": description,
+                "error_description": "\n".join(filter(None, [description, _reports_text])),
                 "count":             len(_day_students),
                 "students":          _day_students,
                 "status":            "open",
                 "reviewer":          _reviewer,
-                "reviewer_comment":  _reviewer_comment,
+                "reviewer_comment":  note.strip(),
                 "updated_at":        now,
             })
 
@@ -632,6 +631,12 @@ def update_history_record(record_id: str, status: str, comment: str, reviewer: s
         if rec["id"] == record_id:
             rec.update({"status": status, "reviewer_comment": comment, "reviewer": reviewer, "updated_at": now})
             break
+    save_history(records)
+
+
+def delete_history_record(record_id: str):
+    """Remove a single record by id."""
+    records = [r for r in load_history() if r["id"] != record_id]
     save_history(records)
 
 
@@ -2586,6 +2591,10 @@ with tab4:
                                 if st.button("↺ Переоткрыть", key=f"hr_{rid}", use_container_width=True):
                                     update_history_record(rid, "open", rec.get("reviewer_comment", ""), reviewer_name)
                                     st.rerun()
+                            st.divider()
+                            if st.button("🗑 Удалить запись", key=f"hdel_{rid}", use_container_width=True):
+                                delete_history_record(rid)
+                                st.rerun()
 
         # ── Экспорт всей истории ──────────────────────────────────────────────
         st.divider()
