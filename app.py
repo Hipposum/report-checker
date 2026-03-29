@@ -3130,8 +3130,6 @@ with tab7:
                         "test_type":   (_r.get("TestTypeName") or ""),
                         "grade":       _grade,
                         "comment":     _comment,
-                        "_raw_keys":   list(_r.keys()),
-                        "_raw_skills": _r.get("Skills"),
                     })
 
                 st.session_state[_rp_cache_key] = _rp_rows
@@ -3216,7 +3214,7 @@ with tab7:
                     )
                     for _rec in _lesson_recs:
                         _icon, _, _color = _rp_quality(_rec["comment"], _rec["grade"])
-                        _grade_str = f"**{_rec['grade']}**" if _rec["grade"] else ""
+                        _grade_str = _rec["grade"] if _rec["grade"] else ""
                         _comment_str = _rec["comment"] if _rec["comment"] else "*— комментарий отсутствует —*"
                         st.markdown(
                             f'<div style="display:flex; gap:10px; align-items:flex-start; '
@@ -3229,11 +3227,34 @@ with tab7:
                             unsafe_allow_html=True,
                         )
 
-        # ── Debug: show raw Skills structure ──────────────────────────────────
+        # ── Скачать отчёты для проверки нейронкой ─────────────────────────────
         if _rp_data:
-            _dbg_rec = next((r for r in _rp_data if r.get("_raw_skills")), _rp_data[0])
-            with st.expander("🛠 Отладка: структура Skills (первая запись)", expanded=False):
-                st.caption("Поля API:")
-                st.code(str(_dbg_rec.get("_raw_keys")))
-                st.caption("Skills:")
-                st.json(_dbg_rec.get("_raw_skills") or [])
+            _dl_lines = []
+            _cur_teacher = None
+            _cur_lesson = None
+            for _rec in sorted(_rp_data, key=lambda x: (x["teacher"], x["date"], x["subject"], x["student"])):
+                if _rec["teacher"] != _cur_teacher:
+                    _cur_teacher = _rec["teacher"]
+                    _dl_lines.append(f"\n{'='*60}")
+                    _dl_lines.append(f"ПРЕПОДАВАТЕЛЬ: {_cur_teacher}")
+                    _cur_lesson = None
+                lesson_key = (_rec["date"], _rec["subject"])
+                if lesson_key != _cur_lesson:
+                    _cur_lesson = lesson_key
+                    try:
+                        _dl_d = datetime.strptime(_rec["date"], "%Y-%m-%d").strftime("%d.%m.%Y")
+                    except Exception:
+                        _dl_d = _rec["date"]
+                    _dl_lines.append(f"\n  Занятие: {_dl_d} | {_rec['subject']}")
+                    if _rec["test_type"]:
+                        _dl_lines[-1] += f" | {_rec['test_type']}"
+                _grade_part = f" | Оценка: {_rec['grade']}" if _rec["grade"] else ""
+                _dl_lines.append(f"    • {_rec['student']}{_grade_part}")
+                _dl_lines.append(f"      Комментарий: {_rec['comment'] or '—'}")
+            _dl_text = "\n".join(_dl_lines).strip()
+            st.download_button(
+                label="⬇ Скачать отчёты (.txt)",
+                data=_dl_text,
+                file_name=f"reports_{_rp_from_str}_{_rp_to_str}.txt",
+                mime="text/plain",
+            )
