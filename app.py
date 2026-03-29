@@ -464,7 +464,7 @@ def upsert_history(all_errors: list, period_from: str, period_to: str, reviewer:
             # no_report errors are NOT auto-closed: teacher may have cancelled the lesson
             # to avoid writing a report — reviewer must verify manually.
             rec = rec.copy()
-            if rec["status"] in ("open", "message_sent") and rec.get("error_type") == "no_abs_comment":
+            if rec["status"] in ("open", "message_sent"):
                 rec.update({"status": "handled", "updated_at": now})
         result[key] = rec
 
@@ -2124,6 +2124,17 @@ with tab4:
         with fc4:
             st.markdown('<div style="height:1.75rem"></div>', unsafe_allow_html=True)
             if st.button("🔄 Обновить", use_container_width=True, key="hist_refresh"):
+                # Save dates from session_state (set by previous render of date inputs)
+                _ss_from = st.session_state.get("hf_date_from")
+                _ss_to   = st.session_state.get("hf_date_to")
+                if _ss_from:
+                    st.session_state["_hist_recheck_from"] = (
+                        _ss_from.strftime("%Y-%m-%d") if hasattr(_ss_from, "strftime") else str(_ss_from)
+                    )
+                if _ss_to:
+                    st.session_state["_hist_recheck_to"] = (
+                        _ss_to.strftime("%Y-%m-%d") if hasattr(_ss_to, "strftime") else str(_ss_to)
+                    )
                 st.session_state["_hist_recheck"] = True
                 st.rerun()
 
@@ -2218,14 +2229,16 @@ with tab4:
             if not api_key:
                 st.error("Укажи API ключ HolliHop в настройках!")
             else:
+                _rc_from = st.session_state.pop("_hist_recheck_from", _hdf)
+                _rc_to   = st.session_state.pop("_hist_recheck_to",   _hdt)
                 _recheck_base = f"https://{subdomain}.t8s.ru/Api/V2"
-                with st.status(f"Проверяю HolliHop за {_hdf} — {_hdt}…", expanded=True) as _rc_status:
+                with st.status(f"Проверяю HolliHop за {_rc_from} — {_rc_to}…", expanded=True) as _rc_status:
                     st.write("👨‍🏫 Преподаватели…")
                     _rc_teachers = api_paginated(_recheck_base, api_key, "GetTeachers", "Teachers")
                     st.write("📚 Учебные единицы…")
                     _rc_eu = api_paginated(_recheck_base, api_key, "GetEdUnits", "EdUnits", params={
                         "types": "Group,MiniGroup,Individual",
-                        "dateFrom": _hdf, "dateTo": _hdt, "queryDays": "true",
+                        "dateFrom": _rc_from, "dateTo": _rc_to, "queryDays": "true",
                     })
                     _rc_eu_map = {}
                     for _eu in _rc_eu:
@@ -2237,12 +2250,12 @@ with tab4:
                         _rc_eu_map[_eu_id] = _t_names
                     st.write("📋 Посещаемость…")
                     _rc_eus = api_paginated(_recheck_base, api_key, "GetEdUnitStudents", "EdUnitStudents", params={
-                        "dateFrom": _hdf, "dateTo": _hdt, "queryDays": "true",
+                        "dateFrom": _rc_from, "dateTo": _rc_to, "queryDays": "true",
                     })
                     st.write("📝 Отчёты…")
                     _rc_filled = {
                         (r["EdUnitId"], r["Date"], r["StudentClientId"])
-                        for r in load_test_results(_recheck_base, api_key, _hdf, _hdt)
+                        for r in load_test_results(_recheck_base, api_key, _rc_from, _rc_to)
                     }
                     st.write("🔍 Анализирую…")
                     from collections import defaultdict as _rcdd
@@ -2258,7 +2271,7 @@ with tab4:
                         _tnames  = _rc_eu_map.get(_eu_id2, ["Неизвестный"])
                         for _day in _eus.get("Days", []):
                             _d = _day.get("Date", "")
-                            if _d < _hdf or _d > _hdt:
+                            if _d < _rc_from or _d > _rc_to:
                                 continue
                             _is_pass = _day.get("Pass", False)
                             _desc    = (_day.get("Description") or "").strip()
@@ -2282,7 +2295,7 @@ with tab4:
                                 "error_type": "no_abs_comment",
                                 "error_description": "Нет комментария к пропуску",
                                 "count": _dc[_d], "students": sorted(set(_rc_nc_st[_t][_d]))})
-                    upsert_history(_rc_errors, _hdf, _hdt, reviewer_name)
+                    upsert_history(_rc_errors, _rc_from, _rc_to, reviewer_name)
                     _rc_status.update(label=f"✅ Готово — найдено {len(_rc_errors)} ошибок за период", state="complete")
                 st.rerun()
 
