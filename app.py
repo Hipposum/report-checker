@@ -3085,28 +3085,19 @@ with tab6:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _rp_grade(r):
-    """Extract grade from raw API record."""
-    # Skills is an array of {SkillName, Score, MaxScore, ValidScore, ...}
-    skills = r.get("Skills") or []
-    if skills:
-        parts = []
-        for sk in skills:
-            name = sk.get("SkillName") or sk.get("Name") or ""
-            # ValidScore is the actual earned score; Score is raw; MaxScore is max possible
-            score = sk.get("ValidScore") if sk.get("ValidScore") is not None else sk.get("Score")
-            max_score = sk.get("MaxScore")
-            if score is not None:
-                val = f"{score}/{max_score}" if max_score is not None else str(score)
-                # Skip SkillName if it's just "Общий" and there's only one skill
-                if name and not (len(skills) == 1 and name == "Общий"):
-                    val = f"{name}: {val}"
-                parts.append(val)
-        if parts:
-            return " · ".join(parts)
-    for _f in ("Mark", "Score", "Result", "Grade", "Value", "TestResult", "MarkValue"):
-        _v = r.get(_f)
-        if _v is not None and str(_v).strip() not in ("", "0", "None"):
-            return str(_v)
+    """Extract per-student grade from comment text (teachers write it inline).
+    Skills field is lesson-level and identical for all students — not used for grade."""
+    comment = str(r.get("CommentText") or r.get("CommentHtml") or "")
+    # Patterns: "оценка: 7", "оценка 7/10", "оценка: -5-", "снял 3 балла"
+    _patterns = [
+        r'оценк[аи][:\s\-]+(\-?\d+(?:[.,]\d+)?(?:\s*/\s*\d+)?)',  # оценка: 7  / оценка: 7/10
+        r'(\d+(?:[.,]\d+)?)\s*/\s*10\b',                           # 7/10  3/10
+        r'балл[аов]*[:\s]+(\d+)',                                   # баллов: 5
+    ]
+    for _pat in _patterns:
+        _m = re.search(_pat, comment, re.IGNORECASE)
+        if _m:
+            return _m.group(1).strip().replace(",", ".")
     return ""
 
 def _strip_html(html: str) -> str:
