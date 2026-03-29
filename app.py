@@ -3031,7 +3031,19 @@ with tab6:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _rp_grade(r):
-    """Extract grade from raw API record — try all known field names."""
+    """Extract grade from raw API record."""
+    # Skills is an array of {SkillName, Mark, MaxMark, ...}
+    skills = r.get("Skills") or []
+    if skills:
+        parts = []
+        for sk in skills:
+            name = sk.get("SkillName") or sk.get("Name") or ""
+            mark = sk.get("Mark") if sk.get("Mark") is not None else sk.get("Value")
+            max_mark = sk.get("MaxMark") or sk.get("Max")
+            if mark is not None:
+                parts.append(f"{name}: {mark}" + (f"/{max_mark}" if max_mark else "") if name else str(mark))
+        if parts:
+            return " · ".join(parts)
     for _f in ("Mark", "Score", "Result", "Grade", "Value", "TestResult", "MarkValue"):
         _v = r.get(_f)
         if _v is not None and str(_v).strip() not in ("", "0", "None"):
@@ -3039,9 +3051,10 @@ def _rp_grade(r):
     return ""
 
 def _rp_comment(r):
-    """Extract comment/report text — try all known field names."""
-    for _f in ("Comment", "Description", "Note", "Notes", "LessonDescription",
-               "TopicDescription", "Homework", "Task", "Text", "Content"):
+    """Extract comment/report text."""
+    # HolliHop uses CommentText (plain) or CommentHtml
+    for _f in ("CommentText", "Comment", "Description", "Note", "Notes",
+               "LessonDescription", "TopicDescription", "Text", "Content"):
         _v = r.get(_f)
         if _v and str(_v).strip():
             return str(_v).strip()
@@ -3106,12 +3119,13 @@ with tab7:
                     _rp_rows.append({
                         "date":        _r.get("Date", ""),
                         "teacher":     ", ".join(_eu_info.get("teachers", [])) or "—",
-                        "subject":     _eu_info.get("name", "—"),
+                        "subject":     (_r.get("EdUnitName") or _eu_info.get("name", "—")),
                         "student":     (_r.get("StudentName") or _r.get("ClientName")
                                         or str(_r.get("StudentClientId", "—"))),
+                        "test_type":   (_r.get("TestTypeName") or ""),
                         "grade":       _grade,
                         "comment":     _comment,
-                        "_raw_keys":   list(_r.keys()),  # for debugging unknown fields
+                        "_raw_keys":   list(_r.keys()),
                     })
 
                 st.session_state[_rp_cache_key] = _rp_rows
@@ -3185,11 +3199,13 @@ with tab7:
                     _l_bad  = sum(1 for r in _lesson_recs if not r["comment"])
                     _l_warn = sum(1 for r in _lesson_recs if r["comment"] and len(r["comment"]) < 25)
                     _l_color = "#f87171" if _l_bad else "#fbbf24" if _l_warn else "#34d399"
+                    _test_types = sorted({r["test_type"] for r in _lesson_recs if r["test_type"]})
+                    _tt_str = f' &nbsp;·&nbsp; <i style="color:#a78bfa;">{", ".join(_test_types)}</i>' if _test_types else ""
                     st.markdown(
                         f'<div style="margin:6px 0 4px 0; padding:6px 12px; '
                         f'border-left:3px solid {_l_color}; '
                         f'background:rgba(255,255,255,0.03); border-radius:0 8px 8px 0;">'
-                        f'<b>{_d_label}</b> &nbsp;·&nbsp; {_subj} '
+                        f'<b>{_d_label}</b> &nbsp;·&nbsp; {_subj}{_tt_str} '
                         f'<span style="color:rgba(255,255,255,0.45); font-size:0.82rem;">'
                         f'({len(_lesson_recs)} уч.)</span></div>',
                         unsafe_allow_html=True,
