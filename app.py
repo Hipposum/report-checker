@@ -3095,8 +3095,8 @@ def _rp_grade(r):
         valid     = sk.get("ValidScore")
         score     = sk.get("Score")
         max_score = sk.get("MaxScore")
-        # Use ValidScore if present and differs from Score (it's the adjusted grade)
-        mark = valid if valid is not None else score
+        # Score is the per-student grade; ValidScore is a lesson-level default (same for all)
+        mark = score if score is not None else valid
         if mark is None:
             continue
         val = f"{mark}/{max_score}" if max_score is not None else str(mark)
@@ -3202,12 +3202,6 @@ with tab7:
     if not _rp_data and not _rp_load_btn:
         st.info("Выбери период и нажми «Загрузить».")
     elif _rp_data:
-        # ── Debug: Skills по первым 5 записям ────────────────────────────────
-        with st.expander("🛠 Отладка: Skills первых 5 записей", expanded=False):
-            for _dbr in _rp_data[:5]:
-                st.caption(f"**{_dbr['student']}** | оценка из функции: `{_dbr['grade']}`")
-                st.json(_dbr.get("_skills") or [])
-
         # ── Summary bar ───────────────────────────────────────────────────────
         _rp_no_comment = sum(1 for r in _rp_data if not r["comment"])
         _rp_short      = sum(1 for r in _rp_data if r["comment"] and len(r["comment"]) < _rp_threshold)
