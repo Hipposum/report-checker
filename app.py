@@ -458,6 +458,68 @@ def _flag_report_dialog(rec: dict):
         st.rerun()
 
 
+@st.dialog("📋 Жалоба на отчёты преподавателя")
+def _flag_teacher_dialog(teacher: str, records: list):
+    st.markdown(f"**Преподаватель:** {teacher}")
+    _dates = sorted({r["date"] for r in records})
+    try:
+        _dates_fmt = ", ".join(datetime.strptime(d, "%Y-%m-%d").strftime("%d.%m") for d in _dates)
+    except Exception:
+        _dates_fmt = ", ".join(_dates)
+    st.caption(f"Занятий: {len(_dates)} · Учеников: {len(records)} · Даты: {_dates_fmt}")
+    st.divider()
+
+    reason = st.radio(
+        "Причина",
+        ["Неинформативный отчёт", "Некорректный отчёт", "Другое"],
+        key="flag_teacher_reason",
+        horizontal=True,
+    )
+    note = st.text_area(
+        "Комментарий (необязательно)" if reason != "Другое" else "Комментарий",
+        placeholder="Уточни что именно не так…",
+        key="flag_teacher_note",
+    )
+
+    col1, col2 = st.columns(2)
+    if col1.button("Добавить в историю", type="primary", use_container_width=True):
+        import uuid as _uuid
+        now = datetime.now().isoformat()
+        _reviewer = cfg.get("reviewer_name", "Артём")
+        description = reason
+        if note.strip():
+            description += f": {note.strip()}"
+
+        new_recs = []
+        for _d in _dates:
+            _day_students = [r["student"] for r in records if r["date"] == _d]
+            new_recs.append({
+                "id":                str(_uuid.uuid4())[:8],
+                "checked_at":        now,
+                "period_from":       _d,
+                "period_to":         _d,
+                "date":              _d,
+                "teacher":           teacher,
+                "student_tag":       ", ".join(_day_students) if _day_students else "Все",
+                "error_type":        "bad_report",
+                "error_description": description,
+                "count":             len(_day_students),
+                "students":          _day_students,
+                "status":            "open",
+                "reviewer":          _reviewer,
+                "reviewer_comment":  note.strip(),
+                "updated_at":        now,
+            })
+
+        all_hist = load_history()
+        all_hist.extend(new_recs)
+        save_history(all_hist)
+        st.success(f"✅ Добавлено {len(new_recs)} записей в историю!")
+        st.rerun()
+    if col2.button("Отмена", use_container_width=True):
+        st.rerun()
+
+
 def upsert_history(all_errors: list, period_from: str, period_to: str, reviewer: str,
                    resolved_keys: set = None):
     """Add/update history records. Global dedup by (teacher, date, error_type).
@@ -3099,7 +3161,9 @@ def _rp_grade(r):
         mark = score if score is not None else valid
         if mark is None:
             continue
-        val = f"{mark}/{max_score}" if max_score is not None else str(mark)
+        def _fmt(v):
+            return str(int(v)) if isinstance(v, float) and v == int(v) else str(v)
+        val = f"{_fmt(mark)}/{_fmt(max_score)}" if max_score is not None else _fmt(mark)
         if name and not (len(skills) == 1 and name == "Общий"):
             val = f"{name}: {val}"
         parts.append(val)
@@ -3250,6 +3314,15 @@ with tab7:
                        (f"  🟡 {_t_warn} коротких" if _t_warn else "")
             _t_label = f"**{_teacher}** — {len(_t_records)} отчётов{_t_badge}"
             with st.expander(_t_label, expanded=True):
+                # Кнопка жалобы на всего преподавателя
+                _tc_btn, _tc_spacer = st.columns([3, 9])
+                if _tc_btn.button(
+                    "📋 Жалоба на все отчёты",
+                    key=f"flag_teacher_{_teacher}",
+                    use_container_width=True,
+                ):
+                    _flag_teacher_dialog(_teacher, _t_records)
+
                 # Group by date+subject within teacher
                 _rp_by_lesson = _rpdd(list)
                 for _r in _t_records:
