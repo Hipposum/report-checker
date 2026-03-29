@@ -446,7 +446,10 @@ def _flag_report_dialog(rec: dict):
             "students":          [rec["student"]],
             "status":            "open",
             "reviewer":          _reviewer,
-            "reviewer_comment":  note.strip(),
+            "reviewer_comment":  "\n\n".join(filter(None, [
+                note.strip(),
+                f"Отчёт ({rec['student']}):\n{rec['comment']}" if rec.get("comment") else "",
+            ])),
             "updated_at":        now,
         }
         all_hist = load_history()
@@ -492,7 +495,14 @@ def _flag_teacher_dialog(teacher: str, records: list):
 
         new_recs = []
         for _d in _dates:
-            _day_students = [r["student"] for r in records if r["date"] == _d]
+            _day_recs     = [r for r in records if r["date"] == _d]
+            _day_students = [r["student"] for r in _day_recs]
+            # Собираем тексты отчётов по студентам для этого дня
+            _reports_text = "\n".join(
+                f"• {r['student']}: {r['comment']}" if r.get("comment") else f"• {r['student']}: —"
+                for r in _day_recs
+            )
+            _reviewer_comment = "\n\n".join(filter(None, [note.strip(), f"Отчёты:\n{_reports_text}"]))
             new_recs.append({
                 "id":                str(_uuid.uuid4())[:8],
                 "checked_at":        now,
@@ -507,7 +517,7 @@ def _flag_teacher_dialog(teacher: str, records: list):
                 "students":          _day_students,
                 "status":            "open",
                 "reviewer":          _reviewer,
-                "reviewer_comment":  note.strip(),
+                "reviewer_comment":  _reviewer_comment,
                 "updated_at":        now,
             })
 
