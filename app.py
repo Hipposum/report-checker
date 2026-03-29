@@ -415,6 +415,49 @@ def save_history(records: list):
             json.dump(records, f, ensure_ascii=False, indent=2, default=str)
 
 
+@st.dialog("⚠️ Некорректный отчёт")
+def _flag_report_dialog(rec: dict):
+    st.markdown(f"**Преподаватель:** {rec['teacher']}")
+    st.markdown(f"**Ученик:** {rec['student']} &nbsp;·&nbsp; **Дата:** {rec['date']} &nbsp;·&nbsp; **Предмет:** {rec['subject']}")
+    _preview = rec["comment"][:300] + ("…" if len(rec["comment"]) > 300 else "")
+    st.caption(_preview)
+    st.divider()
+    note = st.text_area(
+        "Что не так с отчётом?",
+        placeholder="Например: нет конкретики, оценка не обоснована, скопировано у других учеников…",
+        key="flag_note",
+    )
+    col1, col2 = st.columns(2)
+    if col1.button("Добавить в историю", type="primary", use_container_width=True):
+        import uuid as _uuid
+        now = datetime.now().isoformat()
+        _reviewer = cfg.get("reviewer_name", "Артём")
+        new_rec = {
+            "id":                str(_uuid.uuid4())[:8],
+            "checked_at":        now,
+            "period_from":       rec["date"],
+            "period_to":         rec["date"],
+            "date":              rec["date"],
+            "teacher":           rec["teacher"],
+            "student_tag":       rec["student"],
+            "error_type":        "bad_report",
+            "error_description": note.strip() if note.strip() else "Некорректный отчёт",
+            "count":             1,
+            "students":          [rec["student"]],
+            "status":            "open",
+            "reviewer":          _reviewer,
+            "reviewer_comment":  note.strip(),
+            "updated_at":        now,
+        }
+        all_hist = load_history()
+        all_hist.append(new_rec)
+        save_history(all_hist)
+        st.success("✅ Добавлено в историю!")
+        st.rerun()
+    if col2.button("Отмена", use_container_width=True):
+        st.rerun()
+
+
 def upsert_history(all_errors: list, period_from: str, period_to: str, reviewer: str,
                    resolved_keys: set = None):
     """Add/update history records. Global dedup by (teacher, date, error_type).
@@ -3234,20 +3277,26 @@ with tab7:
                         f'({len(_lesson_recs)} уч.)</span></div>',
                         unsafe_allow_html=True,
                     )
-                    for _rec in _lesson_recs:
+                    for _ri, _rec in enumerate(_lesson_recs):
                         _icon, _, _color = _rp_quality(_rec["comment"], _rec["grade"], _rp_threshold)
                         _grade_str = _rec["grade"] if _rec["grade"] else ""
                         _comment_str = _rec["comment"] if _rec["comment"] else "*— комментарий отсутствует —*"
-                        st.markdown(
-                            f'<div style="display:flex; gap:10px; align-items:flex-start; '
-                            f'padding:5px 8px 5px 16px; border-bottom:1px solid rgba(255,255,255,0.05);">'
-                            f'<span style="min-width:18px;">{_icon}</span>'
-                            f'<span style="min-width:220px; color:rgba(255,255,255,0.85);">{_rec["student"]}</span>'
-                            f'<span style="min-width:60px; color:#c4b5fd;">{_grade_str}</span>'
-                            f'<span style="color:rgba(255,255,255,0.6); font-size:0.88rem;">{_comment_str}</span>'
-                            f'</div>',
-                            unsafe_allow_html=True,
-                        )
+                        _row_col, _btn_col = st.columns([20, 1])
+                        with _row_col:
+                            st.markdown(
+                                f'<div style="display:flex; gap:10px; align-items:flex-start; '
+                                f'padding:5px 8px 5px 16px; border-bottom:1px solid rgba(255,255,255,0.05);">'
+                                f'<span style="min-width:18px;">{_icon}</span>'
+                                f'<span style="min-width:220px; color:rgba(255,255,255,0.85);">{_rec["student"]}</span>'
+                                f'<span style="min-width:60px; color:#c4b5fd;">{_grade_str}</span>'
+                                f'<span style="color:rgba(255,255,255,0.6); font-size:0.88rem;">{_comment_str}</span>'
+                                f'</div>',
+                                unsafe_allow_html=True,
+                            )
+                        with _btn_col:
+                            _flag_key = f"flag_{_rec['teacher']}_{_rec['date']}_{_rec['student']}_{_ri}"
+                            if st.button("⚠️", key=_flag_key, help="Отметить как некорректный"):
+                                _flag_report_dialog(_rec)
 
         # ── Скачать отчёты для проверки нейронкой (Markdown) ─────────────────
         if _rp_data:
