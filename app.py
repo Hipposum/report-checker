@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import re
 import time
 import json
 import os
@@ -3055,10 +3056,22 @@ def _rp_grade(r):
             return str(_v)
     return ""
 
+def _strip_html(html: str) -> str:
+    text = re.sub(r'<[^>]+>', ' ', html)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
 def _rp_comment(r):
-    """Extract comment/report text."""
-    # HolliHop uses CommentText (plain) or CommentHtml
-    for _f in ("CommentText", "Comment", "Description", "Note", "Notes",
+    """Extract comment/report text. Prefers CommentHtml (stripped) when it contains more content."""
+    plain = str(r.get("CommentText") or "").strip()
+    html  = str(r.get("CommentHtml") or "").strip()
+    if html:
+        from_html = _strip_html(html)
+        if len(from_html) > len(plain):
+            return from_html
+    if plain:
+        return plain
+    for _f in ("Comment", "Description", "Note", "Notes",
                "LessonDescription", "TopicDescription", "Text", "Content"):
         _v = r.get(_f)
         if _v and str(_v).strip():
