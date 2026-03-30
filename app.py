@@ -2703,19 +2703,10 @@ with tab4:
                                 key=f"htype_{rid}",
                                 label_visibility="collapsed",
                             )
-                            new_desc = st.text_input(
-                                "Причина",
-                                value=rec.get("error_description", ""),
-                                key=f"hdesc_{rid}",
-                                placeholder="Уточнение причины…",
-                                label_visibility="collapsed",
-                            )
-                            _type_changed = _TYPE_OPTIONS[new_type_label] != rec.get("error_type")
-                            _desc_changed = new_desc != rec.get("error_description", "")
-                            if (_type_changed or _desc_changed) and st.button(
+                            if _TYPE_OPTIONS[new_type_label] != rec.get("error_type") and st.button(
                                 "💾 Сохранить", key=f"hdsave_{rid}", use_container_width=True
                             ):
-                                update_history_description(rid, new_desc, _TYPE_OPTIONS[new_type_label])
+                                update_history_description(rid, rec.get("error_description", ""), _TYPE_OPTIONS[new_type_label])
                                 st.rerun()
 
         # ── Экспорт всей истории ──────────────────────────────────────────────
