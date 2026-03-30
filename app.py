@@ -1595,6 +1595,54 @@ tab4, tab5, tab1, tab2, tab3, tab6, tab7 = st.tabs(["📚 История", "📊
 _all_history: list = load_history()
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  REPORT HELPERS (used by tab4 history and tab7 reports)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _rp_grade(r):
+    """Extract grade from Skills array."""
+    skills = r.get("Skills") or []
+    if not skills:
+        return ""
+    parts = []
+    for sk in skills:
+        name      = sk.get("SkillName") or sk.get("Name") or ""
+        valid     = sk.get("ValidScore")
+        score     = sk.get("Score")
+        max_score = sk.get("MaxScore")
+        mark = score if score is not None else valid
+        if mark is None:
+            continue
+        def _fmt(v):
+            return str(int(v)) if isinstance(v, float) and v == int(v) else str(v)
+        val = f"{_fmt(mark)}/{_fmt(max_score)}" if max_score is not None else _fmt(mark)
+        if name and not (len(skills) == 1 and name == "Общий"):
+            val = f"{name}: {val}"
+        parts.append(val)
+    return " · ".join(parts) if parts else ""
+
+def _strip_html(html: str) -> str:
+    text = re.sub(r'<[^>]+>', ' ', html)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+def _rp_comment(r):
+    """Extract comment/report text. Prefers CommentHtml (stripped) when it contains more content."""
+    plain = str(r.get("CommentText") or "").strip()
+    html  = str(r.get("CommentHtml") or "").strip()
+    if html:
+        from_html = _strip_html(html)
+        if len(from_html) > len(plain):
+            return from_html
+    if plain:
+        return plain
+    for _f in ("Comment", "Description", "Note", "Notes",
+               "LessonDescription", "TopicDescription", "Text", "Content"):
+        _v = r.get(_f)
+        if _v and str(_v).strip():
+            return str(_v).strip()
+    return ""
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  TAB 1 — LOAD & ANALYSE
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -2261,7 +2309,7 @@ with tab4:
         with fc3:
             f_error = st.selectbox(
                 "Тип ошибки",
-                ["Все", "Нет отчёта", "Нет комментария к пропуску"],
+                ["Все", "Нет отчёта", "Нет комментария к пропуску", "Некорректный отчёт"],
                 key="hf_error",
             )
         with fc4:
@@ -2349,6 +2397,7 @@ with tab4:
         _ERR_FILTER_MAP = {
             "Нет отчёта":                 "no_report",
             "Нет комментария к пропуску": "no_abs_comment",
+            "Некорректный отчёт":         "bad_report",
         }
         _all_dates = sorted({r["date"] for r in history_records if r.get("date")})
         if _all_dates:
@@ -2614,10 +2663,6 @@ with tab4:
                                 if st.button("↺ Переоткрыть", key=f"hr_{rid}", use_container_width=True):
                                     update_history_record(rid, "open", rec.get("reviewer_comment", ""), reviewer_name)
                                     st.rerun()
-                            st.divider()
-                            if st.button("🗑 Удалить запись", key=f"hdel_{rid}", use_container_width=True):
-                                delete_history_record(rid)
-                                st.rerun()
 
         # ── Экспорт всей истории ──────────────────────────────────────────────
         st.divider()
@@ -3188,50 +3233,6 @@ with tab6:
 #  TAB 7 — ОТЧЁТЫ
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _rp_grade(r):
-    """Extract grade from Skills array."""
-    skills = r.get("Skills") or []
-    if not skills:
-        return ""
-    parts = []
-    for sk in skills:
-        name      = sk.get("SkillName") or sk.get("Name") or ""
-        valid     = sk.get("ValidScore")
-        score     = sk.get("Score")
-        max_score = sk.get("MaxScore")
-        # Score is the per-student grade; ValidScore is a lesson-level default (same for all)
-        mark = score if score is not None else valid
-        if mark is None:
-            continue
-        def _fmt(v):
-            return str(int(v)) if isinstance(v, float) and v == int(v) else str(v)
-        val = f"{_fmt(mark)}/{_fmt(max_score)}" if max_score is not None else _fmt(mark)
-        if name and not (len(skills) == 1 and name == "Общий"):
-            val = f"{name}: {val}"
-        parts.append(val)
-    return " · ".join(parts) if parts else ""
-
-def _strip_html(html: str) -> str:
-    text = re.sub(r'<[^>]+>', ' ', html)
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
-
-def _rp_comment(r):
-    """Extract comment/report text. Prefers CommentHtml (stripped) when it contains more content."""
-    plain = str(r.get("CommentText") or "").strip()
-    html  = str(r.get("CommentHtml") or "").strip()
-    if html:
-        from_html = _strip_html(html)
-        if len(from_html) > len(plain):
-            return from_html
-    if plain:
-        return plain
-    for _f in ("Comment", "Description", "Note", "Notes",
-               "LessonDescription", "TopicDescription", "Text", "Content"):
-        _v = r.get(_f)
-        if _v and str(_v).strip():
-            return str(_v).strip()
-    return ""
 
 def _rp_quality(comment: str, grade: str, threshold: int = 400):
     """Return (icon, label, css_color) quality indicator."""
