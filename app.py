@@ -2547,8 +2547,8 @@ with tab4:
                                 with st.expander(f"👥 {len(_students)} учеников", expanded=False):
                                     # Для bad_report — динамически загружаем отчёты из API
                                     if rec.get("error_type") == "bad_report":
-                                        _rp_cache_key = f"_hist_rp_{rid}"
-                                        if st.button("📋 Загрузить отчёты", key=f"load_rp_{rid}"):
+                                        _rp_cache_key = f"_hist_rp_{rec['id']}"
+                                        if st.button("📋 Загрузить отчёты", key=f"load_rp_{rec['id']}"):
                                             with st.spinner("Загрузка из HolliHop…"):
                                                 try:
                                                     _raw_rp = load_test_results(
