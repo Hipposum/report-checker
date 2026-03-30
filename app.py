@@ -631,13 +631,16 @@ def update_history_record(record_id: str, status: str, comment: str, reviewer: s
     save_history(records)
 
 
-def update_history_description(record_id: str, description: str):
-    """Update a single record's error_description."""
+def update_history_description(record_id: str, description: str, error_type: str = None):
+    """Update a single record's error_description and optionally error_type."""
     records = load_history()
     now = datetime.now().isoformat(timespec="seconds")
     for rec in records:
         if rec["id"] == record_id:
-            rec.update({"error_description": description, "updated_at": now})
+            upd = {"error_description": description, "updated_at": now}
+            if error_type:
+                upd["error_type"] = error_type
+            rec.update(upd)
             break
     save_history(records)
 
@@ -2684,17 +2687,35 @@ with tab4:
                                     update_history_record(rid, "open", rec.get("reviewer_comment", ""), reviewer_name)
                                     st.rerun()
                             # Редактирование причины ошибки (всегда доступно)
+                            _TYPE_OPTIONS = {
+                                "Нет отчёта":                 "no_report",
+                                "Нет комментария к пропуску": "no_abs_comment",
+                                "Некорректный отчёт":         "bad_report",
+                            }
+                            _cur_type_label = next(
+                                (k for k, v in _TYPE_OPTIONS.items() if v == rec.get("error_type")),
+                                "Некорректный отчёт",
+                            )
+                            new_type_label = st.selectbox(
+                                "Тип",
+                                list(_TYPE_OPTIONS.keys()),
+                                index=list(_TYPE_OPTIONS.keys()).index(_cur_type_label),
+                                key=f"htype_{rid}",
+                                label_visibility="collapsed",
+                            )
                             new_desc = st.text_input(
                                 "Причина",
                                 value=rec.get("error_description", ""),
                                 key=f"hdesc_{rid}",
-                                placeholder="Причина ошибки…",
+                                placeholder="Уточнение причины…",
                                 label_visibility="collapsed",
                             )
-                            if new_desc != rec.get("error_description", "") and st.button(
-                                "💾 Сохранить причину", key=f"hdsave_{rid}", use_container_width=True
+                            _type_changed = _TYPE_OPTIONS[new_type_label] != rec.get("error_type")
+                            _desc_changed = new_desc != rec.get("error_description", "")
+                            if (_type_changed or _desc_changed) and st.button(
+                                "💾 Сохранить", key=f"hdsave_{rid}", use_container_width=True
                             ):
-                                update_history_description(rid, new_desc)
+                                update_history_description(rid, new_desc, _TYPE_OPTIONS[new_type_label])
                                 st.rerun()
 
         # ── Экспорт всей истории ──────────────────────────────────────────────
