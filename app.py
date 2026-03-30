@@ -631,6 +631,17 @@ def update_history_record(record_id: str, status: str, comment: str, reviewer: s
     save_history(records)
 
 
+def update_history_description(record_id: str, description: str):
+    """Update a single record's error_description."""
+    records = load_history()
+    now = datetime.now().isoformat(timespec="seconds")
+    for rec in records:
+        if rec["id"] == record_id:
+            rec.update({"error_description": description, "updated_at": now})
+            break
+    save_history(records)
+
+
 def delete_history_record(record_id: str):
     """Remove a single record by id."""
     records = [r for r in load_history() if r["id"] != record_id]
@@ -2672,6 +2683,19 @@ with tab4:
                                 if st.button("↺ Переоткрыть", key=f"hr_{rid}", use_container_width=True):
                                     update_history_record(rid, "open", rec.get("reviewer_comment", ""), reviewer_name)
                                     st.rerun()
+                            # Редактирование причины ошибки (всегда доступно)
+                            new_desc = st.text_input(
+                                "Причина",
+                                value=rec.get("error_description", ""),
+                                key=f"hdesc_{rid}",
+                                placeholder="Причина ошибки…",
+                                label_visibility="collapsed",
+                            )
+                            if new_desc != rec.get("error_description", "") and st.button(
+                                "💾 Сохранить причину", key=f"hdsave_{rid}", use_container_width=True
+                            ):
+                                update_history_description(rid, new_desc)
+                                st.rerun()
 
         # ── Экспорт всей истории ──────────────────────────────────────────────
         st.divider()
