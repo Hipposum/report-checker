@@ -2300,7 +2300,7 @@ with tab4:
         st.info("История пуста — запустите проверку, чтобы записи появились здесь.")
     else:
         # ── Фильтры ───────────────────────────────────────────────────────────
-        fc1, fc2, fc3, fc4 = st.columns([2, 2, 2, 1])
+        fc1, fc2, fc3, fc4, fc5 = st.columns([2, 2, 2, 2, 1])
         with fc1:
             all_hist_teachers = sorted({r["teacher"] for r in history_records})
             f_teacher = st.selectbox("Преподаватель", ["Все"] + all_hist_teachers, key="hf_teacher")
@@ -2313,6 +2313,12 @@ with tab4:
                 key="hf_error",
             )
         with fc4:
+            f_role = st.selectbox(
+                "Категория",
+                ["Все", "Основной состав", "Стажёры"],
+                key="hf_role",
+            )
+        with fc5:
             st.markdown('<div style="height:1.75rem"></div>', unsafe_allow_html=True)
             if st.button("🔄 Обновить", use_container_width=True, key="hist_refresh"):
                 # Save dates from session_state (set by previous render of date inputs)
@@ -2506,6 +2512,9 @@ with tab4:
             and (f_status  == "Все" or r["status"]     == _f_status_val)
             and (f_error   == "Все" or r["error_type"] == _f_error_val)
             and _hdf <= r.get("date", "") <= _hdt
+            and (f_role == "Все"
+                 or (f_role == "Стажёры"        and _teacher_info.get(r["teacher"], {}).get("is_intern", False))
+                 or (f_role == "Основной состав" and not _teacher_info.get(r["teacher"], {}).get("is_intern", False)))
         ]
 
         # ── Группируем по дате занятия (новые сверху) ─────────────────────────
