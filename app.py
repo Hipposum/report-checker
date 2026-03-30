@@ -2740,6 +2740,9 @@ with tab5:
         _ct = custom_to.strftime("%Y-%m-%d")
         sr = [r for r in stat_records if _cf <= r["date"] <= _ct]
 
+        # Пропущенные не учитываются в статистике совсем
+        sr = [r for r in sr if r.get("status") != "skipped"]
+
         # ── Error type filter ─────────────────────────────────────────────────
         with _ftype_col:
             _err_type_opt = st.selectbox(
