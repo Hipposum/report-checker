@@ -441,10 +441,7 @@ def _flag_report_dialog(rec: dict):
             "teacher":           rec["teacher"],
             "student_tag":       rec["student"],
             "error_type":        "bad_report",
-            "error_description": "\n".join(filter(None, [
-                note.strip() if note.strip() else "Некорректный отчёт",
-                f"Отчёт: {rec['comment']}" if rec.get("comment") else "",
-            ])),
+            "error_description": note.strip() if note.strip() else "Некорректный отчёт",
             "count":             1,
             "students":          [rec["student"]],
             "status":            "open",
@@ -511,7 +508,7 @@ def _flag_teacher_dialog(teacher: str, records: list):
                 "teacher":           teacher,
                 "student_tag":       ", ".join(_day_students) if _day_students else "Все",
                 "error_type":        "bad_report",
-                "error_description": "\n".join(filter(None, [description, _reports_text])),
+                "error_description": description,
                 "count":             len(_day_students),
                 "students":          _day_students,
                 "status":            "open",
@@ -2548,8 +2545,34 @@ with tab4:
                             _students = rec.get("students", [])
                             if _students:
                                 with st.expander(f"👥 {len(_students)} учеников", expanded=False):
-                                    for _sn in _students:
-                                        st.caption(f"• {_sn}")
+                                    # Для bad_report — динамически загружаем отчёты из API
+                                    if rec.get("error_type") == "bad_report":
+                                        _rp_cache_key = f"_hist_rp_{rid}"
+                                        if st.button("📋 Загрузить отчёты", key=f"load_rp_{rid}"):
+                                            with st.spinner("Загрузка из HolliHop…"):
+                                                try:
+                                                    _raw_rp = load_test_results(
+                                                        BASE_URL, api_key,
+                                                        rec["date"], rec["date"],
+                                                    )
+                                                    st.session_state[_rp_cache_key] = {
+                                                        r.get("StudentName"): _rp_comment(r)
+                                                        for r in _raw_rp
+                                                        if r.get("StudentName") in _students
+                                                    }
+                                                except Exception as _e:
+                                                    st.error(f"Ошибка: {_e}")
+                                        _loaded_rp = st.session_state.get(_rp_cache_key, {})
+                                        for _sn in _students:
+                                            st.markdown(f"**{_sn}**")
+                                            _rc = _loaded_rp.get(_sn)
+                                            if _rc:
+                                                st.caption(_rc)
+                                            elif _loaded_rp:
+                                                st.caption("_— отчёт не найден —_")
+                                    else:
+                                        for _sn in _students:
+                                            st.caption(f"• {_sn}")
 
                         with r_c2:
                             pill_cls = _STATUS_PILL.get(rec["status"], "pill")
