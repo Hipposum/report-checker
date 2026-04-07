@@ -2843,8 +2843,14 @@ with tab5:
         in_progress_n  = sum(_sr_status_cnt.get(s, 0) for s in _in_progress_statuses)
         open_n         = _sr_status_cnt.get("open", 0)
         teachers_n     = len(_sr_teachers)
+        _active_statuses_top = {"open", "message_sent", "pass_set"}
+        not_written_total = sum(
+            len(r.get("students") or []) or int(r.get("count") or 1)
+            for r in _sr_no_filter
+            if r.get("status") in _active_statuses_top
+        )
 
-        m1, m2, m3, m4, m5 = st.columns(5)
+        m1, m2, m3, m4, m5, m6 = st.columns(6)
         m1.metric("📋 Всего ошибок",      total_rec)
         m2.metric("✅ Исправлено",         processed_n,
                   help="Ошибки, где преподаватель реально написал отчёт (подтверждено перепроверкой) или закрыты вручную")
@@ -2852,7 +2858,9 @@ with tab5:
                   help="Отправлено напоминание или выставлен пропуск — ждём, пока преподаватель исправит")
         m4.metric("🔴 Не обработано",      open_n,
                   help="Ошибки, по которым ещё не предпринято никаких действий")
-        m5.metric("👩‍🏫 Преподавателей",    teachers_n)
+        m5.metric("✏️ Не написано",        not_written_total,
+                  help="Кол-во учеников без отчёта по активным записям")
+        m6.metric("👩‍🏫 Преподавателей",    teachers_n)
 
         st.divider()
 
