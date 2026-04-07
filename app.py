@@ -1154,7 +1154,9 @@ _teacher_info, _teacher_info_status = load_teacher_info(creds_json_str=cfg.get("
 def _show_welcome():
     import random as _rng
 
-    hour = datetime.now().hour
+    from datetime import timezone, timedelta as _td
+    _msk = timezone(_td(hours=3))
+    hour = datetime.now(_msk).hour
     if 0 <= hour < 6:
         greeting, emoji, period = "Доброй ночи", "🌙", "night"
         bg       = "radial-gradient(ellipse at 50% 0%, #2d1b69 0%, #0d0628 50%, #060614 100%)"
@@ -2428,10 +2430,11 @@ with tab4:
 
         fd1, fd2 = st.columns(2)
         with fd1:
-            _h_date_from = st.date_input("Дата занятия с", value=_hd_min,
+            _h_def_from = max(_hd_min, date.today() - timedelta(days=date.today().weekday() + 7))
+            _h_date_from = st.date_input("Дата занятия с", value=_h_def_from,
                                          min_value=_hd_min, max_value=_hd_max, key="hf_date_from")
         with fd2:
-            _h_date_to   = st.date_input("по",             value=_hd_max,
+            _h_date_to   = st.date_input("по",             value=min(_hd_max, date.today()),
                                          min_value=_hd_min, max_value=_hd_max, key="hf_date_to")
         _hdf = _h_date_from.strftime("%Y-%m-%d")
         _hdt = _h_date_to.strftime("%Y-%m-%d")
@@ -2778,9 +2781,10 @@ with tab5:
         _min_d = datetime.strptime(_hist_dates[0], "%Y-%m-%d").date() if _hist_dates else date.today() - timedelta(days=30)
         _max_d = datetime.strptime(_hist_dates[-1], "%Y-%m-%d").date() if _hist_dates else date.today()
         with _fp1_col:
-            custom_from = st.date_input("С", value=_min_d, key="stat_custom_from")
+            _stat_def_from = max(_min_d, date.today() - timedelta(days=date.today().weekday() + 7))
+            custom_from = st.date_input("С", value=_stat_def_from, key="stat_custom_from")
         with _fp2_col:
-            custom_to   = st.date_input("По", value=_max_d, key="stat_custom_to")
+            custom_to   = st.date_input("По", value=min(_max_d, date.today()), key="stat_custom_to")
         _cf = custom_from.strftime("%Y-%m-%d")
         _ct = custom_to.strftime("%Y-%m-%d")
         sr = [r for r in stat_records if _cf <= r["date"] <= _ct]
