@@ -2847,11 +2847,9 @@ with tab5:
         in_progress_n  = sum(_sr_status_cnt.get(s, 0) for s in _in_progress_statuses)
         open_n         = _sr_status_cnt.get("open", 0)
         teachers_n     = len(_sr_teachers)
-        _active_statuses_top = {"open", "message_sent", "pass_set"}
         not_written_total = sum(
             len(r.get("students") or []) or int(r.get("count") or 1)
             for r in _sr_no_filter
-            if r.get("status") in _active_statuses_top
         )
 
         m1, m2, m3, m4, m5, m6 = st.columns(6)
@@ -2863,7 +2861,7 @@ with tab5:
         m4.metric("🔴 Не обработано",      open_n,
                   help="Ошибки, по которым ещё не предпринято никаких действий")
         m5.metric("✏️ Не написано",        not_written_total,
-                  help="Кол-во учеников без отчёта по активным записям")
+                  help="Всего учеников без отчёта за период (включая исправленные, кроме пропущенных)")
         m6.metric("👩‍🏫 Преподавателей",    teachers_n)
 
         st.divider()
@@ -2875,7 +2873,6 @@ with tab5:
             st.markdown("**По преподавателям**")
 
             teacher_rows = []
-            _active_statuses = {"open", "message_sent", "pass_set"}
             for teacher in sorted(_sr_by_teacher.keys()):
                 t     = _sr_by_teacher[teacher]
                 t_cnt = _Counter(r["status"] for r in t)
@@ -2885,7 +2882,6 @@ with tab5:
                 not_written = sum(
                     len(r.get("students") or []) or int(r.get("count") or 1)
                     for r in _nr_by_teacher.get(teacher, [])
-                    if r.get("status") in _active_statuses
                 )
                 teacher_rows.append({
                     "Преподаватель":    teacher,
