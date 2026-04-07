@@ -2849,14 +2849,22 @@ with tab5:
             st.markdown("**По преподавателям**")
 
             teacher_rows = []
+            _active_statuses = {"open", "message_sent", "pass_set"}
             for teacher in sorted(_sr_by_teacher.keys()):
                 t     = _sr_by_teacher[teacher]
                 t_cnt = _Counter(r["status"] for r in t)
                 done  = sum(t_cnt.get(s, 0) for s in _processed_statuses)
                 wip   = sum(t_cnt.get(s, 0) for s in _in_progress_statuses)
                 total = len(t)
+                not_written = sum(
+                    r.get("count", 1)
+                    for r in t
+                    if r.get("error_type") == "no_report"
+                    and r.get("status") in _active_statuses
+                )
                 teacher_rows.append({
                     "Преподаватель":    teacher,
+                    "📋 Не написано":   not_written,
                     "✅ Исправлено":    done,
                     "⏳ В работе":      wip,
                     "🔴 Открыто":       t_cnt.get("open", 0),
@@ -2872,6 +2880,7 @@ with tab5:
                 hide_index=True,
                 column_config={
                     "Преподаватель":    st.column_config.TextColumn(width="large"),
+                    "📋 Не написано":   st.column_config.NumberColumn(width="small", help="Кол-во учеников без отчёта (активные записи)"),
                     "✅ Исправлено":    st.column_config.NumberColumn(width="small"),
                     "⏳ В работе":      st.column_config.NumberColumn(width="small"),
                     "🔴 Открыто":       st.column_config.NumberColumn(width="small"),
