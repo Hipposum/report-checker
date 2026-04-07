@@ -2822,6 +2822,20 @@ with tab5:
             _sr_status_cnt[_r["status"]] += 1
             _sr_teachers.add(_r["teacher"])
 
+        # no_report считаем отдельно — независимо от фильтра по типу ошибки
+        _nr_by_teacher: dict = _dd(list)
+        _sr_no_filter = [
+            r for r in stat_records
+            if _cf <= r.get("date", "") <= _ct
+            and r.get("status") != "skipped"
+            and r.get("error_type") == "no_report"
+            and (_role_opt == "Все"
+                 or (_role_opt == "Только стажёры" and _teacher_info.get(r["teacher"], {}).get("is_intern", False))
+                 or (_role_opt == "Только преподаватели" and not _teacher_info.get(r["teacher"], {}).get("is_intern", False)))
+        ]
+        for _r in _sr_no_filter:
+            _nr_by_teacher[_r["teacher"]].append(_r)
+
         _processed_statuses = {"handled", "resolved"}
         _in_progress_statuses = {"message_sent", "pass_set"}
         total_rec      = len(sr)
@@ -2857,10 +2871,9 @@ with tab5:
                 wip   = sum(t_cnt.get(s, 0) for s in _in_progress_statuses)
                 total = len(t)
                 not_written = sum(
-                    r.get("count", 1)
-                    for r in t
-                    if r.get("error_type") == "no_report"
-                    and r.get("status") in _active_statuses
+                    len(r.get("students") or []) or int(r.get("count") or 1)
+                    for r in _nr_by_teacher.get(teacher, [])
+                    if r.get("status") in _active_statuses
                 )
                 teacher_rows.append({
                     "Преподаватель":    teacher,
