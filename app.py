@@ -2428,6 +2428,7 @@ with tab4:
         else:
             _hd_min = _hd_max = date.today()
 
+        """
         fd1, fd2 = st.columns(2)
         with fd1:
             _h_def_from = max(_hd_min, date.today() - timedelta(days=date.today().weekday() + 7))
@@ -2438,6 +2439,38 @@ with tab4:
                                          min_value=_hd_min, max_value=_hd_max, key="hf_date_to")
         _hdf = _h_date_from.strftime("%Y-%m-%d")
         _hdt = _h_date_to.strftime("%Y-%m-%d")
+        """
+        # 1. Принудительно приводим к типу date (если вдруг там datetime или Timestamp)
+        _hd_min = getattr(_hd_min, "date", lambda: _hd_min)()
+        _hd_max = getattr(_hd_max, "date", lambda: _hd_max)()
+
+        with fd1:
+            # 2. Вычисляем дефолтную дату: начало прошлой недели
+            past_monday = date.today() - timedelta(days=date.today().weekday() + 7)
+    
+            # 3. Безопасный выбор: значение ДОЛЖНО быть между min и max
+            _h_def_from = max(_hd_min, min(_hd_max, past_monday))
+    
+            _h_date_from = st.date_input(
+                "Дата занятия с", 
+                value=_h_def_from,
+                min_value=_hd_min, 
+                max_value=_hd_max, 
+                key="hf_date_from"
+            )
+
+        with fd2:
+            # Аналогично для второй даты
+            _h_def_to = max(_hd_min, min(_hd_max, date.today()))
+    
+            _h_date_to = st.date_input(
+                "по", 
+                value=_h_def_to,
+                min_value=_hd_min, 
+                max_value=_hd_max, 
+                key="hf_date_to"
+            )
+        
 
         # ── Перепроверка данных из HolliHop ───────────────────────────────────
         if st.session_state.pop("_hist_recheck", False):
