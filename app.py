@@ -682,9 +682,9 @@ def load_teacher_info(creds_json_str: str = "") -> tuple:
             if not name or name.lower() == "nan":
                 continue
             _raw_status = str(_get_ci(row, "Статус набора")).strip()
-            _intern_val = str(_get_ci(row, "стажер", "стажёр", "Стажер", "Стажёр")).strip().lower().replace("ё", "е")
+            _role_val = str(_get_ci(row, "Статус")).strip().lower().replace("ё", "е")
             result[name] = {
-                "is_intern": _intern_val in ("стажер", "да", "yes", "true", "1"),
+                "is_intern": _role_val in ("стажер", "стажёр"),
                 "subject":   str(_get_ci(row, "Предмет")).strip(),
                 "status":    _raw_status,
                 "fired":     _raw_status.lower() == "уволен",
