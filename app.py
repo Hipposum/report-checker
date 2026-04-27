@@ -2428,8 +2428,9 @@ with tab4:
         else:
             _hd_min = _hd_max = date.today()
 
-        """
+        
         fd1, fd2 = st.columns(2)
+        """
         with fd1:
             _h_def_from = max(_hd_min, date.today() - timedelta(days=date.today().weekday() + 7))
             _h_date_from = st.date_input("Дата занятия с", value=_h_def_from,
