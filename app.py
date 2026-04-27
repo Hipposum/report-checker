@@ -667,15 +667,25 @@ def load_teacher_info(creds_json_str: str = "") -> tuple:
     import io
 
     def _parse_rows(rows: list) -> dict:
+        def _get_ci(row, *candidates):
+            """Case-insensitive row.get supporting ё/е equivalence."""
+            row_lower = {k.lower().replace("ё", "е"): v for k, v in row.items()}
+            for c in candidates:
+                val = row_lower.get(c.lower().replace("ё", "е"))
+                if val is not None:
+                    return val
+            return ""
+
         result = {}
         for row in rows:
-            name = str(row.get("ФИО", "")).strip()
+            name = str(_get_ci(row, "ФИО")).strip()
             if not name or name.lower() == "nan":
                 continue
-            _raw_status = str(row.get("Статус набора", "")).strip()
+            _raw_status = str(_get_ci(row, "Статус набора")).strip()
+            _intern_val = str(_get_ci(row, "стажер", "стажёр", "Стажер", "Стажёр")).strip().lower().replace("ё", "е")
             result[name] = {
-                "is_intern": str(row.get("стажер", "")).strip().lower() == "стажер",
-                "subject":   str(row.get("Предмет", "")).strip(),
+                "is_intern": _intern_val in ("стажер", "да", "yes", "true", "1"),
+                "subject":   str(_get_ci(row, "Предмет")).strip(),
                 "status":    _raw_status,
                 "fired":     _raw_status.lower() == "уволен",
             }
