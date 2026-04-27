@@ -1503,6 +1503,49 @@ with _gear_col:
                             st.success(f"✅ Восстановлено {len(_restore_data)} записей")
                         except Exception as _re:
                             st.error(f"Ошибка: {_re}")
+
+            # Restore missing records from Google Sheets mirror
+            st.markdown("**📗 Восстановить из Google Sheets**")
+            st.caption("Найти записи, которые есть в Sheets-зеркале, но пропали из Supabase, и восстановить их.")
+            if st.button("🔄 Восстановить пропавшие записи из Sheets",
+                         key="restore_from_sheets_btn", use_container_width=True):
+                _ws_restore, _ = _get_history_sheet()
+                if _ws_restore is None:
+                    st.error("❌ Google Sheets не подключён")
+                else:
+                    with st.status("Восстанавливаю из Sheets…", expanded=True) as _rs_status:
+                        try:
+                            st.write("📖 Читаю данные из Sheets…")
+                            _rows_sh = _ws_restore.get_all_values()
+                            _recs_sh = [_hist_row_to_dict(r) for r in _rows_sh[1:] if any(r)]
+                            st.write(f"   Найдено {len(_recs_sh)} записей в Sheets")
+
+                            st.write("📖 Читаю данные из Supabase…")
+                            _recs_sb = load_history()
+                            _sb_ids = {r["id"] for r in _recs_sb}
+                            st.write(f"   Найдено {len(_recs_sb)} записей в Supabase")
+
+                            _missing = [r for r in _recs_sh if r["id"] not in _sb_ids]
+                            st.write(f"🔍 Пропавших записей: **{len(_missing)}**")
+
+                            if _missing:
+                                # Merge: existing Supabase + missing from Sheets
+                                _merged = _recs_sb + _missing
+                                save_history(_merged)
+                                st.write(f"✅ Восстановлено {len(_missing)} записей")
+                                _rs_status.update(
+                                    label=f"✅ Восстановлено {len(_missing)} записей",
+                                    state="complete",
+                                )
+                            else:
+                                st.write("✅ Все записи на месте, восстанавливать нечего")
+                                _rs_status.update(
+                                    label="✅ Данные в Supabase актуальны",
+                                    state="complete",
+                                )
+                        except Exception as _rse:
+                            st.error(f"Ошибка: {_rse}")
+                            _rs_status.update(label="❌ Ошибка", state="error")
         else:
             st.caption(f"⚠️ Supabase не подключён: `{_sb_err}`")
             with st.expander("Как подключить Supabase"):
