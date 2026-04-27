@@ -2429,13 +2429,18 @@ with tab4:
             _hd_min = _hd_max = date.today()
 
         
+        # Ensure session_state values for history date inputs are proper date objects
+        for _k in ["hf_date_from", "hf_date_to"]:
+            if _k in st.session_state and not isinstance(st.session_state[_k], date):
+                del st.session_state[_k]
         fd1, fd2 = st.columns(2)
         with fd1:
-            _h_def_from = max(_hd_min, date.today() - timedelta(days=date.today().weekday() + 7))
+            _h_def_from = max(_hd_min, min(_hd_max, date.today() - timedelta(days=date.today().weekday() + 7)))
             _h_date_from = st.date_input("Дата занятия с", value=_h_def_from,
                                          min_value=_hd_min, max_value=_hd_max, key="hf_date_from")
         with fd2:
-            _h_date_to   = st.date_input("по",             value=min(_hd_max, date.today()),
+            _h_def_to = max(_hd_min, min(_hd_max, date.today()))
+            _h_date_to   = st.date_input("по",             value=_h_def_to,
                                          min_value=_hd_min, max_value=_hd_max, key="hf_date_to")
         _hdf = _h_date_from.strftime("%Y-%m-%d")
         _hdt = _h_date_to.strftime("%Y-%m-%d")
@@ -2782,10 +2787,11 @@ with tab5:
         _min_d = datetime.strptime(_hist_dates[0], "%Y-%m-%d").date() if _hist_dates else date.today() - timedelta(days=30)
         _max_d = datetime.strptime(_hist_dates[-1], "%Y-%m-%d").date() if _hist_dates else date.today()
         with _fp1_col:
-            _stat_def_from = max(_min_d, date.today() - timedelta(days=date.today().weekday() + 7))
+            _stat_def_from = max(_min_d, min(_max_d, date.today() - timedelta(days=date.today().weekday() + 7)))
             custom_from = st.date_input("С", value=_stat_def_from, key="stat_custom_from")
         with _fp2_col:
-            custom_to   = st.date_input("По", value=min(_max_d, date.today()), key="stat_custom_to")
+            _stat_def_to = max(_min_d, min(_max_d, date.today()))
+            custom_to   = st.date_input("По", value=_stat_def_to, key="stat_custom_to")
         _cf = custom_from.strftime("%Y-%m-%d")
         _ct = custom_to.strftime("%Y-%m-%d")
         sr = [r for r in stat_records if _cf <= r["date"] <= _ct]
