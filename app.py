@@ -3469,9 +3469,9 @@ with tab8:
 
         # Итоговые метрики
         _at_m1, _at_m2, _at_m3 = st.columns(3)
-        _at_m1.metric("✅ Есть отчёт",   f"{_at_p_n} уч.", help="Будет отмечено как присутствовал")
-        _at_m2.metric("🚫 Отмена урока", f"{_at_c_n} уч.", help="Будет отмечено как отсутствовал (отмена)")
-        _at_m3.metric("⚠️ Без данных",   f"{_at_na_n} уч.", help="Нет ни отчёта, ни отмены — требует внимания")
+        _at_m1.metric("✅ Есть отчёт",   f"{_at_p_n} уч.", help="pass=false → присутствовал")
+        _at_m2.metric("🚫 Отмена урока", f"{_at_c_n} уч.", help="pass=true → пропуск (урок отменён)")
+        _at_m3.metric("⚠️ Без данных",   f"{_at_na_n} уч.", help="pass=true → пропуск (нет отчёта и нет отмены)")
 
         # ── Единая кнопка: проставить всем ──────────────────────────────────
         # Все три категории → один запрос:
@@ -3503,9 +3503,11 @@ with tab8:
                     return item
 
                 for _at_e in _at_auto_present:
-                    _at_batch.append(_at_make_item(_at_e, True))
+                    # pass=False → присутствовал (урок состоялся, отчёт написан)
+                    _at_batch.append(_at_make_item(_at_e, False))
                 for _at_e in _at_auto_cancelled:
-                    _at_batch.append(_at_make_item(_at_e, False, _at_e["existing_desc"] or "Отмена занятия"))
+                    # pass=True → пропуск (урок отменён)
+                    _at_batch.append(_at_make_item(_at_e, True, _at_e["existing_desc"] or "Отмена занятия"))
                 for _at_e in _at_needs_attention:
                     _at_batch.append(_at_make_item(_at_e, True))
 
