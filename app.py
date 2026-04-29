@@ -3345,7 +3345,7 @@ with tab7:
 with tab8:
     st.subheader("📅 Посещаемость")
 
-    _at_c1, _at_c2, _at_c3 = st.columns([2, 2, 1])
+    _at_c1, _at_c2 = st.columns([2, 2])
     _at_today = date.today()
     _at_week_start = _at_today - timedelta(days=_at_today.weekday())
     _at_date_from = _at_c1.date_input(
@@ -3358,7 +3358,18 @@ with tab8:
         value=_at_today,
         key="at_date_to",
     )
-    with _at_c3:
+
+    # Список преподавателей из кэша (загружается при первом открытии)
+    if "at_teachers_list" not in st.session_state:
+        st.session_state["at_teachers_list"] = []
+    _at_tc1, _at_tc2 = st.columns([3, 1])
+    with _at_tc1:
+        _at_teacher_filter = st.selectbox(
+            "Преподаватель",
+            options=["Все преподаватели"] + sorted(st.session_state["at_teachers_list"]),
+            key="at_teacher_filter",
+        )
+    with _at_tc2:
         st.markdown('<div style="height:1.75rem"></div>', unsafe_allow_html=True)
         _at_load = st.button("🔍 Загрузить", type="primary", use_container_width=True, key="at_load")
 
@@ -3403,6 +3414,17 @@ with tab8:
             })
             _at_test_results = load_test_results(BASE_URL, api_key, _at_from_str, _at_to_str)
 
+        # Обновляем список преподавателей для селектора
+        _at_all_teachers = sorted({
+            t
+            for v in _at_eu_map.values()
+            for t in v["teachers"]
+        })
+        st.session_state["at_teachers_list"] = _at_all_teachers
+
+        # Фильтр по преподавателю
+        _at_chosen_teacher = st.session_state.get("at_teacher_filter", "Все преподаватели")
+
         # Быстрый set для проверки наличия отчёта: (EdUnitId, StudentClientId, Date)
         _at_has_report = {
             (r.get("EdUnitId"), r.get("StudentClientId"), r.get("Date"))
@@ -3410,8 +3432,8 @@ with tab8:
         }
 
         # ── Классифицируем все Accepted=False записи ────────────────────────
-        _at_auto_present   = []   # есть отчёт → pass=True
-        _at_auto_cancelled = []   # урок отменён → pass=False
+        _at_auto_present   = []   # есть отчёт → pass=False (присутствовал)
+        _at_auto_cancelled = []   # урок отменён → pass=True (пропуск)
         _at_needs_attention = []  # ничего нет → показываем
 
         for _at_rec in _at_eus:
@@ -3420,6 +3442,10 @@ with tab8:
             _at_sname    = _at_rec.get("StudentName") or _at_rec.get("ClientName") or "—"
             _at_group    = _at_rec.get("EdUnitName") or _at_eu_map.get(_at_eu_id, {}).get("name", "")
             _at_teachers = _at_eu_map.get(_at_eu_id, {}).get("teachers", [])
+
+            # Фильтр по выбранному преподавателю
+            if _at_chosen_teacher != "Все преподаватели" and _at_chosen_teacher not in _at_teachers:
+                continue
 
             for _at_day in _at_rec.get("Days", []):
                 _at_d = _at_day.get("Date", "")
