@@ -3367,7 +3367,6 @@ with tab8:
         _at_to_str   = _at_date_to.strftime("%Y-%m-%d")
 
         with st.spinner("Загрузка данных из HolliHop…"):
-            # Load ed-unit map (teachers per unit)
             _at_ed_units = api_paginated(BASE_URL, api_key, "GetEdUnits", "EdUnits", params={
                 "types": "Group,MiniGroup,Individual",
                 "dateFrom": _at_from_str, "dateTo": _at_to_str, "queryDays": "true",
@@ -3384,14 +3383,22 @@ with tab8:
                     "teachers": _at_t_names,
                 }
 
-            # Load student attendance records
             _at_eus = api_paginated(BASE_URL, api_key, "GetEdUnitStudents", "EdUnitStudents", params={
                 "dateFrom": _at_from_str, "dateTo": _at_to_str, "queryDays": "true",
             })
 
-        # Collect rows where attendance is NOT marked (Pass is None / missing / False
-        # while the lesson date is within the range)
-        _at_rows = []  # {date, teacher, group, student}
+        # ── Debug: показываем ВСЕ записи для сравнения ──────────────────────
+        st.markdown("---")
+        st.markdown("### 🛠 Отладка: сравнение полей `Days`")
+        st.caption("Найди Серову (не отмечена) и Нефедьеву (отмечена) — посмотри, какое поле отличается")
+
+        _at_dbg_filter = st.text_input(
+            "Фильтр по имени ученика или преподавателя (часть строки)",
+            placeholder="напр. Серова или Древс",
+            key="at_dbg_filter",
+        )
+
+        _at_all_rows = []
         for _at_eus_rec in _at_eus:
             _at_eu_id  = _at_eus_rec.get("EdUnitId") or _at_eus_rec.get("Id")
             _at_sname  = (
@@ -3402,49 +3409,37 @@ with tab8:
             )
             _at_teachers = _at_eu_map.get(_at_eu_id, {}).get("teachers", ["—"])
             _at_group    = _at_eu_map.get(_at_eu_id, {}).get("name", "")
+            _at_teacher_str = ", ".join(_at_teachers)
 
             for _at_day in _at_eus_rec.get("Days", []):
                 _at_d = _at_day.get("Date", "")
                 if not _at_d or _at_d < _at_from_str or _at_d > _at_to_str:
                     continue
-                # Pass=True → attended; Pass=False or None → not marked / "?"
-                _at_pass = _at_day.get("Pass")
-                if _at_pass:  # already marked — skip
-                    continue
-                _at_rows.append({
-                    "date":    _at_d,
-                    "teacher": ", ".join(_at_teachers),
-                    "group":   _at_group,
-                    "student": _at_sname,
-                    "day_raw": _at_day,  # keep for debug
+                _at_all_rows.append({
+                    "student":  _at_sname,
+                    "teacher":  _at_teacher_str,
+                    "group":    _at_group,
+                    "date":     _at_d,
+                    "day_raw":  _at_day,
                 })
 
-        if not _at_rows:
-            st.success("✅ Вся посещаемость отмечена — незаполненных записей нет!")
-        else:
-            # Summary metric
-            _at_unmarked_students = len({(r["date"], r["student"]) for r in _at_rows})
-            st.error(f"⚠️ Найдено **{_at_unmarked_students}** незаполненных записей посещаемости")
+        _at_dbg_rows = _at_all_rows
+        if _at_dbg_filter.strip():
+            _f = _at_dbg_filter.strip().lower()
+            _at_dbg_rows = [
+                r for r in _at_all_rows
+                if _f in r["student"].lower() or _f in r["teacher"].lower()
+            ]
 
-            # Group by teacher → date
-            _at_by_teacher = defaultdict(lambda: defaultdict(list))
-            for _at_r in _at_rows:
-                for _at_t in _at_r["teacher"].split(", "):
-                    _at_by_teacher[_at_t][_at_r["date"]].append(_at_r)
+        st.caption(f"Всего записей в периоде: {len(_at_all_rows)} | Показано с фильтром: {len(_at_dbg_rows)}")
 
-            for _at_teacher in sorted(_at_by_teacher):
-                with st.expander(f"👤 {_at_teacher}", expanded=True):
-                    for _at_d in sorted(_at_by_teacher[_at_teacher]):
-                        try:
-                            _at_d_fmt = datetime.strptime(_at_d, "%Y-%m-%d").strftime("%d.%m.%Y")
-                        except Exception:
-                            _at_d_fmt = _at_d
-                        st.markdown(f"**{_at_d_fmt}**")
-                        for _at_r2 in _at_by_teacher[_at_teacher][_at_d]:
-                            _at_grp_str = f" · {_at_r2['group']}" if _at_r2['group'] else ""
-                            st.markdown(f"- {_at_r2['student']}{_at_grp_str}")
-
-            # Debug dump: show raw Day object fields to help identify status field
-            with st.expander("🛠 Отладка: поля объекта Day (первые 5 записей)"):
-                for _at_r in _at_rows[:5]:
-                    st.json(_at_r["day_raw"])
+        for _at_r in _at_dbg_rows[:30]:
+            _at_day_fields = _at_r["day_raw"]
+            # Highlight Pass and other potential status fields
+            _at_pass_val = _at_day_fields.get("Pass")
+            _at_label = "✅ отмечена" if _at_pass_val else "❓ не отмечена"
+            with st.expander(
+                f"{_at_label} | {_at_r['student']} | {_at_r['teacher']} | {_at_r['date']}",
+                expanded=False,
+            ):
+                st.json(_at_day_fields)
