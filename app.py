@@ -3387,59 +3387,21 @@ with tab8:
                 "dateFrom": _at_from_str, "dateTo": _at_to_str, "queryDays": "true",
             })
 
-        # ── Debug: показываем ВСЕ записи для сравнения ──────────────────────
+        # ── Debug: полный дамп сырых записей из API ─────────────────────────
         st.markdown("---")
-        st.markdown("### 🛠 Отладка: сравнение полей `Days`")
-        st.caption("Найди Серову (не отмечена) и Нефедьеву (отмечена) — посмотри, какое поле отличается")
+        st.markdown("### 🛠 Сырые данные API (`GetEdUnitStudents`)")
+        st.caption(f"Всего записей: {len(_at_eus)}. Показаны первые 50 — со ВСЕМИ полями верхнего уровня и Days.")
 
-        _at_dbg_filter = st.text_input(
-            "Фильтр по имени ученика или преподавателя (часть строки)",
-            placeholder="напр. Серова или Древс",
-            key="at_dbg_filter",
-        )
-
-        _at_all_rows = []
-        for _at_eus_rec in _at_eus:
-            _at_eu_id  = _at_eus_rec.get("EdUnitId") or _at_eus_rec.get("Id")
-            _at_sname  = (
-                _at_eus_rec.get("Name")
-                or _at_eus_rec.get("StudentName")
-                or _at_eus_rec.get("ClientName")
-                or "—"
+        for _at_raw_rec in _at_eus[:50]:
+            # Пытаемся вытащить хоть какое-то имя для заголовка
+            _at_hdr = (
+                _at_raw_rec.get("Name")
+                or _at_raw_rec.get("StudentName")
+                or _at_raw_rec.get("ClientName")
+                or _at_raw_rec.get("FullName")
+                or str(_at_raw_rec.get("StudentClientId") or _at_raw_rec.get("ClientId") or _at_raw_rec.get("Id") or "запись")
             )
-            _at_teachers = _at_eu_map.get(_at_eu_id, {}).get("teachers", ["—"])
-            _at_group    = _at_eu_map.get(_at_eu_id, {}).get("name", "")
-            _at_teacher_str = ", ".join(_at_teachers)
-
-            for _at_day in _at_eus_rec.get("Days", []):
-                _at_d = _at_day.get("Date", "")
-                if not _at_d or _at_d < _at_from_str or _at_d > _at_to_str:
-                    continue
-                _at_all_rows.append({
-                    "student":  _at_sname,
-                    "teacher":  _at_teacher_str,
-                    "group":    _at_group,
-                    "date":     _at_d,
-                    "day_raw":  _at_day,
-                })
-
-        _at_dbg_rows = _at_all_rows
-        if _at_dbg_filter.strip():
-            _f = _at_dbg_filter.strip().lower()
-            _at_dbg_rows = [
-                r for r in _at_all_rows
-                if _f in r["student"].lower() or _f in r["teacher"].lower()
-            ]
-
-        st.caption(f"Всего записей в периоде: {len(_at_all_rows)} | Показано с фильтром: {len(_at_dbg_rows)}")
-
-        for _at_r in _at_dbg_rows[:30]:
-            _at_day_fields = _at_r["day_raw"]
-            # Highlight Pass and other potential status fields
-            _at_pass_val = _at_day_fields.get("Pass")
-            _at_label = "✅ отмечена" if _at_pass_val else "❓ не отмечена"
-            with st.expander(
-                f"{_at_label} | {_at_r['student']} | {_at_r['teacher']} | {_at_r['date']}",
-                expanded=False,
-            ):
-                st.json(_at_day_fields)
+            _at_eu_id_hdr = _at_raw_rec.get("EdUnitId") or _at_raw_rec.get("Id") or ""
+            _at_grp_hdr   = _at_eu_map.get(_at_eu_id_hdr, {}).get("name", "")
+            with st.expander(f"📄 {_at_hdr}  |  {_at_grp_hdr}", expanded=False):
+                st.json(_at_raw_rec)
