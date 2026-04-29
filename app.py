@@ -3387,21 +3387,11 @@ with tab8:
                 "dateFrom": _at_from_str, "dateTo": _at_to_str, "queryDays": "true",
             })
 
-        # ── Debug: полный дамп сырых записей из API ─────────────────────────
+        # ── Debug: полный дамп ВСЕХ записей одним JSON ──────────────────────
         st.markdown("---")
         st.markdown("### 🛠 Сырые данные API (`GetEdUnitStudents`)")
-        st.caption(f"Всего записей: {len(_at_eus)}. Показаны первые 50 — со ВСЕМИ полями верхнего уровня и Days.")
-
-        for _at_raw_rec in _at_eus[:50]:
-            # Пытаемся вытащить хоть какое-то имя для заголовка
-            _at_hdr = (
-                _at_raw_rec.get("Name")
-                or _at_raw_rec.get("StudentName")
-                or _at_raw_rec.get("ClientName")
-                or _at_raw_rec.get("FullName")
-                or str(_at_raw_rec.get("StudentClientId") or _at_raw_rec.get("ClientId") or _at_raw_rec.get("Id") or "запись")
-            )
-            _at_eu_id_hdr = _at_raw_rec.get("EdUnitId") or _at_raw_rec.get("Id") or ""
-            _at_grp_hdr   = _at_eu_map.get(_at_eu_id_hdr, {}).get("name", "")
-            with st.expander(f"📄 {_at_hdr}  |  {_at_grp_hdr}", expanded=False):
-                st.json(_at_raw_rec)
+        st.caption(
+            f"Всего записей: **{len(_at_eus)}**. "
+            "Используй Ctrl+F в браузере чтобы найти нужного ученика."
+        )
+        st.json(_at_eus)
