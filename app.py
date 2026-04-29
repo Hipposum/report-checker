@@ -3560,6 +3560,126 @@ with tab8:
         else:
             st.success("✅ Нет записей для проставления — всё уже отмечено!")
 
+        # ── Исправить ошибочно выставленные пропуски ────────────────────────
+        st.markdown("---")
+        st.markdown("### 🔧 Исправить ошибочные пропуски")
+        st.caption("Ищет тех, кому стоит pass=true (пропуск), но при этом есть отчёт → исправляет на pass=false (присутствовал)")
+
+        if st.button("🔍 Найти ошибочные пропуски", key="at_fix_find"):
+            _at_ff_str = _at_date_from.strftime("%Y-%m-%d")
+            _at_ft_str = _at_date_to.strftime("%Y-%m-%d")
+            with st.spinner("Загружаю данные…"):
+                _at_fix_eus = api_paginated(BASE_URL, api_key, "GetEdUnitStudents", "EdUnitStudents", params={
+                    "dateFrom": _at_ff_str, "dateTo": _at_ft_str, "queryDays": "true",
+                })
+                _at_fix_ed_units = api_paginated(BASE_URL, api_key, "GetEdUnits", "EdUnits", params={
+                    "types": "Group,MiniGroup,Individual",
+                    "dateFrom": _at_ff_str, "dateTo": _at_ft_str, "queryDays": "true",
+                })
+                _at_fix_eu_map = {}
+                for _at_feu in _at_fix_ed_units:
+                    _at_feu_id, _at_ft_names = _at_feu["Id"], []
+                    for _at_fsi in _at_feu.get("ScheduleItems", []):
+                        for _at_ftn in _at_fsi.get("Teachers", []):
+                            if _at_ftn not in _at_ft_names:
+                                _at_ft_names.append(_at_ftn)
+                    _at_fix_eu_map[_at_feu_id] = {
+                        "name": _at_feu.get("Name", ""),
+                        "teachers": _at_ft_names,
+                    }
+                _at_fix_results = load_test_results(BASE_URL, api_key, _at_ff_str, _at_ft_str)
+            _at_fix_has_report = {
+                (r.get("EdUnitId"), r.get("StudentClientId"), r.get("Date"))
+                for r in _at_fix_results
+            }
+            # Ищем: Pass=True (пропуск) И есть отчёт → ошибка
+            _at_fix_list = []
+            for _at_frec in _at_fix_eus:
+                _at_feu_id    = _at_frec.get("EdUnitId") or _at_frec.get("Id")
+                _at_fclient   = _at_frec.get("StudentClientId")
+                _at_fsname    = _at_frec.get("StudentName") or "—"
+                _at_fgroup    = _at_frec.get("EdUnitName") or _at_fix_eu_map.get(_at_feu_id, {}).get("name", "")
+                _at_fteachers = _at_fix_eu_map.get(_at_feu_id, {}).get("teachers", [])
+                for _at_fday in _at_frec.get("Days", []):
+                    _at_fd = _at_fday.get("Date", "")
+                    if not _at_fd or _at_fd < _at_ff_str or _at_fd > _at_ft_str:
+                        continue
+                    if _at_fday.get("Pass") is True and (_at_feu_id, _at_fclient, _at_fd) in _at_fix_has_report:
+                        _at_fix_list.append({
+                            "edUnitId":        _at_feu_id,
+                            "studentClientId": _at_fclient,
+                            "date":            _at_fd,
+                            "student":         _at_fsname,
+                            "group":           _at_fgroup,
+                            "teachers":        _at_fteachers,
+                            "existing_desc":   (_at_fday.get("Description") or "").strip(),
+                            "minutes":         _at_fday.get("Minutes"),
+                        })
+            st.session_state["at_fix_list"] = _at_fix_list
+
+        _at_fix_list = st.session_state.get("at_fix_list")
+        if _at_fix_list is not None:
+            if not _at_fix_list:
+                st.success("✅ Ошибочных пропусков не найдено!")
+            else:
+                st.error(f"⚠️ Найдено **{len(_at_fix_list)}** ошибочных пропусков — у людей с отчётом стоит пропуск")
+                # Показываем список
+                _at_fix_by_t = defaultdict(list)
+                for _at_fr in _at_fix_list:
+                    for _at_ft in (_at_fr["teachers"] or ["—"]):
+                        _at_fix_by_t[_at_ft].append(_at_fr)
+                for _at_ft in sorted(_at_fix_by_t):
+                    with st.expander(f"👤 {_at_ft}  —  {len(_at_fix_by_t[_at_ft])} чел.", expanded=True):
+                        for _at_fr in _at_fix_by_t[_at_ft]:
+                            try:
+                                _at_fd_fmt = datetime.strptime(_at_fr["date"], "%Y-%m-%d").strftime("%d.%m.%Y")
+                            except Exception:
+                                _at_fd_fmt = _at_fr["date"]
+                            _at_fg = f" · _{_at_fr['group']}_" if _at_fr["group"] else ""
+                            st.markdown(f"- **{_at_fd_fmt}** {_at_fr['student']}{_at_fg}")
+
+                if st.button(
+                    f"✅ Исправить — пометить всех {len(_at_fix_list)} как присутствовал (pass=false)",
+                    type="primary",
+                    key="at_fix_apply",
+                ):
+                    _at_fix_batch = []
+                    for _at_fr in _at_fix_list:
+                        _at_fix_item = {
+                            "edUnitId":        _at_fr["edUnitId"],
+                            "studentClientId": _at_fr["studentClientId"],
+                            "date":            _at_fr["date"],
+                            "pass":            False,
+                            "description":     _at_fr["existing_desc"],
+                        }
+                        if _at_fr.get("minutes") is not None:
+                            _at_fix_item["minutes"] = _at_fr["minutes"]
+                        _at_fix_batch.append(_at_fix_item)
+
+                    _at_fix_ok, _at_fix_err = 0, 0
+                    with st.spinner("Исправляю…"):
+                        _at_fix_url = f"{BASE_URL}/SetStudentPasses"
+                        for _i in range(0, len(_at_fix_batch), 100):
+                            _at_fc = _at_fix_batch[_i:_i + 100]
+                            try:
+                                _at_fr2 = requests.post(
+                                    _at_fix_url,
+                                    params={"authkey": api_key},
+                                    json=_at_fc,
+                                    timeout=60,
+                                )
+                                if _at_fr2.status_code in (200, 204):
+                                    _at_fix_ok += len(_at_fc)
+                                else:
+                                    _at_fix_err += len(_at_fc)
+                            except Exception:
+                                _at_fix_err += len(_at_fc)
+                    if _at_fix_err == 0:
+                        st.success(f"✅ Исправлено {_at_fix_ok} записей!")
+                        st.session_state["at_fix_list"] = []
+                    else:
+                        st.warning(f"Исправлено: {_at_fix_ok} ✅ / {_at_fix_err} ❌")
+
         # ── Список «требует внимания» (показываем до нажатия кнопки) ────────
         if _at_needs_attention:
             st.markdown("---")
