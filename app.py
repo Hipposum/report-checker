@@ -3451,13 +3451,13 @@ with tab8:
                 _at_d = _at_day.get("Date", "")
                 if not _at_d or _at_d < _at_from_str or _at_d > _at_to_str:
                     continue
-                # Пропускаем если посещаемость уже обработана:
-                # Accepted=True  → отмечена вручную в HolliHop
-                # Pass=True      → пропуск выставлен программно (SetStudentPasses),
-                #                  Accepted при этом может оставаться False
-                if _at_day.get("Accepted") or _at_day.get("Pass") is True:
+                # Пропускаем только если Accepted=True — посещаемость подтверждена
+                # Pass=True + Accepted=False = пропуск стоит, но знак вопроса не убран
+                # → тоже обрабатываем
+                if _at_day.get("Accepted"):
                     continue
 
+                _at_already_pass = _at_day.get("Pass") is True  # пропуск уже стоит, но Accepted=False
                 _at_entry = {
                     "edUnitId":        _at_eu_id,
                     "studentClientId": _at_client_id,
@@ -3467,11 +3467,16 @@ with tab8:
                     "teachers":        _at_teachers,
                     "existing_desc":   (_at_day.get("Description") or "").strip(),
                     "minutes":         _at_day.get("Minutes"),
+                    "already_pass":    _at_already_pass,
                 }
 
                 if (_at_eu_id, _at_client_id, _at_d) in _at_has_report:
+                    # Есть отчёт → присутствовал (даже если стоял пропуск — исправляем)
                     _at_auto_present.append(_at_entry)
                 elif _at_d in _at_cancelled_dates.get(_at_eu_id, set()):
+                    _at_auto_cancelled.append(_at_entry)
+                elif _at_already_pass:
+                    # Пропуск уже стоит, Accepted=False → просто подтверждаем (pass=True снова)
                     _at_auto_cancelled.append(_at_entry)
                 else:
                     _at_needs_attention.append(_at_entry)
