@@ -3367,6 +3367,7 @@ with tab8:
         _at_to_str   = _at_date_to.strftime("%Y-%m-%d")
 
         with st.spinner("Загрузка данных из HolliHop…"):
+            # Преподаватели привязаны к EdUnit → нужен eu_map
             _at_ed_units = api_paginated(BASE_URL, api_key, "GetEdUnits", "EdUnits", params={
                 "types": "Group,MiniGroup,Individual",
                 "dateFrom": _at_from_str, "dateTo": _at_to_str, "queryDays": "true",
@@ -3379,7 +3380,7 @@ with tab8:
                         if _at_tn not in _at_t_names:
                             _at_t_names.append(_at_tn)
                 _at_eu_map[_at_eu_id] = {
-                    "name": _at_eu.get("Name", ""),
+                    "name":     _at_eu.get("Name", ""),
                     "teachers": _at_t_names,
                 }
 
@@ -3387,11 +3388,54 @@ with tab8:
                 "dateFrom": _at_from_str, "dateTo": _at_to_str, "queryDays": "true",
             })
 
-        # ── Debug: полный дамп ВСЕХ записей одним JSON ──────────────────────
+        # ── Собираем записи где Accepted=False ("?" в HolliHop) ─────────────
+        # Accepted=False → посещаемость не отмечена ("?")
+        # Accepted=True  → отмечена (Pass=True присутствовал, Pass=False пропуск)
+        _at_rows = []
+        for _at_rec in _at_eus:
+            _at_eu_id   = _at_rec.get("EdUnitId") or _at_rec.get("Id")
+            _at_sname   = _at_rec.get("StudentName") or _at_rec.get("ClientName") or "—"
+            _at_group   = _at_rec.get("EdUnitName") or _at_eu_map.get(_at_eu_id, {}).get("name", "")
+            _at_teachers = _at_eu_map.get(_at_eu_id, {}).get("teachers", [])
+
+            for _at_day in _at_rec.get("Days", []):
+                _at_d = _at_day.get("Date", "")
+                if not _at_d or _at_d < _at_from_str or _at_d > _at_to_str:
+                    continue
+                # Accepted=False → посещаемость не выставлена
+                if _at_day.get("Accepted"):
+                    continue
+                _at_rows.append({
+                    "date":     _at_d,
+                    "student":  _at_sname,
+                    "group":    _at_group,
+                    "teachers": _at_teachers,
+                })
+
         st.markdown("---")
-        st.markdown("### 🛠 Сырые данные API (`GetEdUnitStudents`)")
-        st.caption(
-            f"Всего записей: **{len(_at_eus)}**. "
-            "Используй Ctrl+F в браузере чтобы найти нужного ученика."
-        )
-        st.json(_at_eus)
+
+        if not _at_rows:
+            st.success("✅ Вся посещаемость отмечена — незаполненных записей нет!")
+        else:
+            _at_total = len(_at_rows)
+            st.error(f"⚠️ Посещаемость не отмечена у **{_at_total}** {'ученика' if _at_total == 1 else 'учеников'}")
+
+            # Группировка по преподавателю → дата → ученики
+            _at_by_teacher = defaultdict(lambda: defaultdict(list))
+            for _at_r in _at_rows:
+                _at_ts = _at_r["teachers"] or ["Без преподавателя"]
+                for _at_t in _at_ts:
+                    _at_by_teacher[_at_t][_at_r["date"]].append(_at_r)
+
+            for _at_teacher in sorted(_at_by_teacher):
+                _at_t_count = sum(len(v) for v in _at_by_teacher[_at_teacher].values())
+                with st.expander(f"👤 {_at_teacher}  —  {_at_t_count} чел.", expanded=True):
+                    for _at_d in sorted(_at_by_teacher[_at_teacher]):
+                        try:
+                            _at_d_fmt = datetime.strptime(_at_d, "%Y-%m-%d").strftime("%d.%m.%Y")
+                        except Exception:
+                            _at_d_fmt = _at_d
+                        st.markdown(f"**{_at_d_fmt}**")
+                        for _at_r2 in _at_by_teacher[_at_teacher][_at_d]:
+                            _at_grp = f" · _{_at_r2['group']}_" if _at_r2["group"] else ""
+                            st.markdown(f"- {_at_r2['student']}{_at_grp}")
