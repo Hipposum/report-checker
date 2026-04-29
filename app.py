@@ -3440,6 +3440,7 @@ with tab8:
                     "group":           _at_group,
                     "teachers":        _at_teachers,
                     "existing_desc":   (_at_day.get("Description") or "").strip(),
+                    "minutes":         _at_day.get("Minutes"),
                 }
 
                 if (_at_eu_id, _at_client_id, _at_d) in _at_has_report:
@@ -3489,30 +3490,24 @@ with tab8:
                 _at_errs = []
                 _at_batch = []
 
+                def _at_make_item(e, pass_val, desc=None):
+                    item = {
+                        "edUnitId":        e["edUnitId"],
+                        "studentClientId": e["studentClientId"],
+                        "date":            e["date"],
+                        "pass":            pass_val,
+                        "description":     desc if desc is not None else e["existing_desc"],
+                    }
+                    if e.get("minutes") is not None:
+                        item["minutes"] = e["minutes"]
+                    return item
+
                 for _at_e in _at_auto_present:
-                    _at_batch.append({
-                        "edUnitId":        _at_e["edUnitId"],
-                        "studentClientId": _at_e["studentClientId"],
-                        "date":            _at_e["date"],
-                        "pass":            True,
-                        "description":     _at_e["existing_desc"],
-                    })
+                    _at_batch.append(_at_make_item(_at_e, True))
                 for _at_e in _at_auto_cancelled:
-                    _at_batch.append({
-                        "edUnitId":        _at_e["edUnitId"],
-                        "studentClientId": _at_e["studentClientId"],
-                        "date":            _at_e["date"],
-                        "pass":            False,
-                        "description":     _at_e["existing_desc"] or "Отмена занятия",
-                    })
+                    _at_batch.append(_at_make_item(_at_e, False, _at_e["existing_desc"] or "Отмена занятия"))
                 for _at_e in _at_needs_attention:
-                    _at_batch.append({
-                        "edUnitId":        _at_e["edUnitId"],
-                        "studentClientId": _at_e["studentClientId"],
-                        "date":            _at_e["date"],
-                        "pass":            True,
-                        "description":     _at_e["existing_desc"],
-                    })
+                    _at_batch.append(_at_make_item(_at_e, True))
 
                 # Показываем первый элемент батча для отладки
                 with st.expander("🛠 Отладка: пример запроса (первая запись)", expanded=False):
