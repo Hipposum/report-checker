@@ -3495,8 +3495,7 @@ with tab8:
                         "studentClientId": _at_e["studentClientId"],
                         "date":            _at_e["date"],
                         "pass":            True,
-                        "accepted":        True,
-                        "description":     _at_e["existing_desc"] or "",
+                        "description":     _at_e["existing_desc"],
                     })
                 for _at_e in _at_auto_cancelled:
                     _at_batch.append({
@@ -3504,7 +3503,6 @@ with tab8:
                         "studentClientId": _at_e["studentClientId"],
                         "date":            _at_e["date"],
                         "pass":            False,
-                        "accepted":        True,
                         "description":     _at_e["existing_desc"] or "Отмена занятия",
                     })
                 for _at_e in _at_needs_attention:
@@ -3513,10 +3511,15 @@ with tab8:
                         "studentClientId": _at_e["studentClientId"],
                         "date":            _at_e["date"],
                         "pass":            True,
-                        "accepted":        True,
-                        "description":     _at_e["existing_desc"] or "",
+                        "description":     _at_e["existing_desc"],
                     })
 
+                # Показываем первый элемент батча для отладки
+                with st.expander("🛠 Отладка: пример запроса (первая запись)", expanded=False):
+                    if _at_batch:
+                        st.json(_at_batch[0])
+
+                _at_api_responses = []
                 with st.spinner(f"Отправляем {len(_at_batch)} записей в HolliHop…"):
                     _at_url = f"{BASE_URL}/SetStudentPasses"
                     for _i in range(0, len(_at_batch), 100):
@@ -3528,6 +3531,9 @@ with tab8:
                                 json=_at_chunk,
                                 timeout=60,
                             )
+                            _at_api_responses.append(
+                                f"Пакет {_i//100+1}: HTTP {_at_resp.status_code} | {_at_resp.text[:500]}"
+                            )
                             if _at_resp.status_code in (200, 204):
                                 _at_ok += len(_at_chunk)
                             else:
@@ -3538,9 +3544,15 @@ with tab8:
                         except Exception as _at_ex:
                             _at_err += len(_at_chunk)
                             _at_errs.append(str(_at_ex))
+                            _at_api_responses.append(f"Пакет {_i//100+1}: Exception — {_at_ex}")
+
+                # Всегда показываем ответ API для отладки
+                with st.expander("🛠 Ответ сервера HolliHop", expanded=True):
+                    for _at_ar in _at_api_responses:
+                        st.code(_at_ar)
 
                 if _at_err == 0:
-                    st.success(f"✅ Посещаемость проставлена для **{_at_ok}** учеников!")
+                    st.success(f"✅ Запрос принят для **{_at_ok}** учеников — проверь HolliHop через минуту")
                     st.session_state["at_auto_present"]    = []
                     st.session_state["at_auto_cancelled"]  = []
                     st.session_state["at_needs_attention"] = []
