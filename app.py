@@ -1419,7 +1419,7 @@ supabase_key = "eyJ..."
 
 BASE_URL  = f"https://{subdomain}.t8s.ru/Api/V2"
 
-tab4, tab5, tab1, tab2, tab3, tab6, tab7 = st.tabs(["📚 История", "📊 Статистика", "📥 Загрузить данные", "✉️ Сообщения", "📤 Отправить", "📢 Рассылка", "📑 Отчёты"])
+tab4, tab5, tab1, tab2, tab3, tab6, tab7, tab8 = st.tabs(["📚 История", "📊 Статистика", "📥 Загрузить данные", "✉️ Сообщения", "📤 Отправить", "📢 Рассылка", "📑 Отчёты", "📅 Посещаемость"])
 
 
 # Load history once per render — reused across Tab 4 and Tab 5
@@ -3340,3 +3340,111 @@ with tab7:
                 file_name=f"reports_{_rp_from_str}_{_rp_to_str}.md",
                 mime="text/markdown",
             )
+
+# ── Tab 8: Посещаемость ────────────────────────────────────────────────────
+with tab8:
+    st.subheader("📅 Посещаемость")
+
+    _at_c1, _at_c2, _at_c3 = st.columns([2, 2, 1])
+    _at_today = date.today()
+    _at_week_start = _at_today - timedelta(days=_at_today.weekday())
+    _at_date_from = _at_c1.date_input(
+        "Период с",
+        value=_at_week_start,
+        key="at_date_from",
+    )
+    _at_date_to = _at_c2.date_input(
+        "по",
+        value=_at_today,
+        key="at_date_to",
+    )
+    with _at_c3:
+        st.markdown('<div style="height:1.75rem"></div>', unsafe_allow_html=True)
+        _at_load = st.button("🔍 Загрузить", type="primary", use_container_width=True, key="at_load")
+
+    if _at_load:
+        _at_from_str = _at_date_from.strftime("%Y-%m-%d")
+        _at_to_str   = _at_date_to.strftime("%Y-%m-%d")
+
+        with st.spinner("Загрузка данных из HolliHop…"):
+            # Load ed-unit map (teachers per unit)
+            _at_ed_units = api_paginated(BASE_URL, api_key, "GetEdUnits", "EdUnits", params={
+                "types": "Group,MiniGroup,Individual",
+                "dateFrom": _at_from_str, "dateTo": _at_to_str, "queryDays": "true",
+            })
+            _at_eu_map = {}
+            for _at_eu in _at_ed_units:
+                _at_eu_id, _at_t_names = _at_eu["Id"], []
+                for _at_si in _at_eu.get("ScheduleItems", []):
+                    for _at_tn in _at_si.get("Teachers", []):
+                        if _at_tn not in _at_t_names:
+                            _at_t_names.append(_at_tn)
+                _at_eu_map[_at_eu_id] = {
+                    "name": _at_eu.get("Name", ""),
+                    "teachers": _at_t_names,
+                }
+
+            # Load student attendance records
+            _at_eus = api_paginated(BASE_URL, api_key, "GetEdUnitStudents", "EdUnitStudents", params={
+                "dateFrom": _at_from_str, "dateTo": _at_to_str, "queryDays": "true",
+            })
+
+        # Collect rows where attendance is NOT marked (Pass is None / missing / False
+        # while the lesson date is within the range)
+        _at_rows = []  # {date, teacher, group, student}
+        for _at_eus_rec in _at_eus:
+            _at_eu_id  = _at_eus_rec.get("EdUnitId") or _at_eus_rec.get("Id")
+            _at_sname  = (
+                _at_eus_rec.get("Name")
+                or _at_eus_rec.get("StudentName")
+                or _at_eus_rec.get("ClientName")
+                or "—"
+            )
+            _at_teachers = _at_eu_map.get(_at_eu_id, {}).get("teachers", ["—"])
+            _at_group    = _at_eu_map.get(_at_eu_id, {}).get("name", "")
+
+            for _at_day in _at_eus_rec.get("Days", []):
+                _at_d = _at_day.get("Date", "")
+                if not _at_d or _at_d < _at_from_str or _at_d > _at_to_str:
+                    continue
+                # Pass=True → attended; Pass=False or None → not marked / "?"
+                _at_pass = _at_day.get("Pass")
+                if _at_pass:  # already marked — skip
+                    continue
+                _at_rows.append({
+                    "date":    _at_d,
+                    "teacher": ", ".join(_at_teachers),
+                    "group":   _at_group,
+                    "student": _at_sname,
+                    "day_raw": _at_day,  # keep for debug
+                })
+
+        if not _at_rows:
+            st.success("✅ Вся посещаемость отмечена — незаполненных записей нет!")
+        else:
+            # Summary metric
+            _at_unmarked_students = len({(r["date"], r["student"]) for r in _at_rows})
+            st.error(f"⚠️ Найдено **{_at_unmarked_students}** незаполненных записей посещаемости")
+
+            # Group by teacher → date
+            _at_by_teacher = defaultdict(lambda: defaultdict(list))
+            for _at_r in _at_rows:
+                for _at_t in _at_r["teacher"].split(", "):
+                    _at_by_teacher[_at_t][_at_r["date"]].append(_at_r)
+
+            for _at_teacher in sorted(_at_by_teacher):
+                with st.expander(f"👤 {_at_teacher}", expanded=True):
+                    for _at_d in sorted(_at_by_teacher[_at_teacher]):
+                        try:
+                            _at_d_fmt = datetime.strptime(_at_d, "%Y-%m-%d").strftime("%d.%m.%Y")
+                        except Exception:
+                            _at_d_fmt = _at_d
+                        st.markdown(f"**{_at_d_fmt}**")
+                        for _at_r2 in _at_by_teacher[_at_teacher][_at_d]:
+                            _at_grp_str = f" · {_at_r2['group']}" if _at_r2['group'] else ""
+                            st.markdown(f"- {_at_r2['student']}{_at_grp_str}")
+
+            # Debug dump: show raw Day object fields to help identify status field
+            with st.expander("🛠 Отладка: поля объекта Day (первые 5 записей)"):
+                for _at_r in _at_rows[:5]:
+                    st.json(_at_r["day_raw"])
