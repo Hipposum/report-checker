@@ -3425,8 +3425,12 @@ with tab8:
                 _at_d = _at_day.get("Date", "")
                 if not _at_d or _at_d < _at_from_str or _at_d > _at_to_str:
                     continue
-                if _at_day.get("Accepted"):
-                    continue  # уже отмечена
+                # Пропускаем если посещаемость уже обработана:
+                # Accepted=True  → отмечена вручную в HolliHop
+                # Pass=True      → пропуск выставлен программно (SetStudentPasses),
+                #                  Accepted при этом может оставаться False
+                if _at_day.get("Accepted") or _at_day.get("Pass") is True:
+                    continue
 
                 _at_entry = {
                     "edUnitId":        _at_eu_id,
