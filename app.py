@@ -3472,25 +3472,31 @@ with tab8:
         _at_m2.metric("🚫 Отмена урока", f"{_at_c_n} уч.", help="Будет отмечено как отсутствовал (отмена)")
         _at_m3.metric("⚠️ Без данных",   f"{_at_na_n} уч.", help="Нет ни отчёта, ни отмены — требует внимания")
 
-        # Кнопка автопроставления
-        _at_to_mark = _at_auto_present + _at_auto_cancelled
-        if _at_to_mark:
+        # ── Единая кнопка: проставить всем ──────────────────────────────────
+        # Все три категории → один запрос:
+        #   • есть отчёт     → pass=True  (присутствовал)
+        #   • отмена урока   → pass=False (отменён)
+        #   • без данных     → pass=True  (пропуск, аналогично основной вкладке)
+        _at_all_to_mark = _at_auto_present + _at_auto_cancelled + _at_needs_attention
+        if _at_all_to_mark:
             st.markdown("")
             if st.button(
-                f"🚀 Проставить посещаемость для {len(_at_to_mark)} учеников",
+                f"🚀 Проставить посещаемость для всех {len(_at_all_to_mark)} учеников",
                 type="primary",
                 key="at_apply",
             ):
                 _at_ok, _at_err = 0, 0
                 _at_errs = []
                 _at_batch = []
+
                 for _at_e in _at_auto_present:
                     _at_batch.append({
                         "edUnitId":        _at_e["edUnitId"],
                         "studentClientId": _at_e["studentClientId"],
                         "date":            _at_e["date"],
                         "pass":            True,
-                        "description":     _at_e["existing_desc"],
+                        "accepted":        True,
+                        "description":     _at_e["existing_desc"] or "",
                     })
                 for _at_e in _at_auto_cancelled:
                     _at_batch.append({
@@ -3498,7 +3504,17 @@ with tab8:
                         "studentClientId": _at_e["studentClientId"],
                         "date":            _at_e["date"],
                         "pass":            False,
+                        "accepted":        True,
                         "description":     _at_e["existing_desc"] or "Отмена занятия",
+                    })
+                for _at_e in _at_needs_attention:
+                    _at_batch.append({
+                        "edUnitId":        _at_e["edUnitId"],
+                        "studentClientId": _at_e["studentClientId"],
+                        "date":            _at_e["date"],
+                        "pass":            True,
+                        "accepted":        True,
+                        "description":     _at_e["existing_desc"] or "",
                     })
 
                 with st.spinner(f"Отправляем {len(_at_batch)} записей в HolliHop…"):
@@ -3516,28 +3532,30 @@ with tab8:
                                 _at_ok += len(_at_chunk)
                             else:
                                 _at_err += len(_at_chunk)
-                                _at_errs.append(f"HTTP {_at_resp.status_code}: {_at_resp.text[:200]}")
+                                _at_errs.append(
+                                    f"HTTP {_at_resp.status_code}: {_at_resp.text[:300]}"
+                                )
                         except Exception as _at_ex:
                             _at_err += len(_at_chunk)
                             _at_errs.append(str(_at_ex))
 
                 if _at_err == 0:
                     st.success(f"✅ Посещаемость проставлена для **{_at_ok}** учеников!")
-                    # Очищаем авто-списки — они уже обработаны
-                    st.session_state["at_auto_present"]   = []
-                    st.session_state["at_auto_cancelled"] = []
+                    st.session_state["at_auto_present"]    = []
+                    st.session_state["at_auto_cancelled"]  = []
+                    st.session_state["at_needs_attention"] = []
                 else:
-                    st.warning(f"Готово: {_at_ok} ✅ / {_at_err} ❌")
+                    st.warning(f"Готово: {_at_ok} ✅  /  {_at_err} ❌")
                     for _at_em in _at_errs:
                         st.caption(f"⚠️ {_at_em}")
         else:
-            st.success("✅ Нет записей для автопроставления — всё уже отмечено!")
+            st.success("✅ Нет записей для проставления — всё уже отмечено!")
 
-        # ── Список «требует внимания» ────────────────────────────────────────
+        # ── Список «требует внимания» (показываем до нажатия кнопки) ────────
         if _at_needs_attention:
             st.markdown("---")
-            st.markdown(f"### ⚠️ Требуют внимания — {_at_na_n} уч.")
-            st.caption("Нет ни написанного отчёта, ни признака отмены урока")
+            st.markdown(f"### ⚠️ Без данных — {_at_na_n} уч.")
+            st.caption("Нет отчёта и нет признака отмены — будут отмечены как пропуск при нажатии кнопки выше")
 
             _at_by_teacher = defaultdict(lambda: defaultdict(list))
             for _at_r in _at_needs_attention:
@@ -3557,6 +3575,3 @@ with tab8:
                         for _at_r2 in _at_by_teacher[_at_teacher][_at_d]:
                             _at_grp = f" · _{_at_r2['group']}_" if _at_r2["group"] else ""
                             st.markdown(f"- {_at_r2['student']}{_at_grp}")
-        elif _at_auto_present is not None:
-            st.markdown("---")
-            st.success("✅ Все записи покрыты — нет учеников без данных!")
