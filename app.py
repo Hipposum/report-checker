@@ -3432,15 +3432,13 @@ with tab8:
             for r in _at_test_results
         }
 
-        # ── Классифицируем все Accepted=False записи ────────────────────────
-        # Pass=True + Accepted=False → пропуск стоит, но "?" не убран → подтверждаем пропуск
-        # Pass=False + Accepted=False → ничего не стоит:
-        #   урок был (есть отчёт по группе) → ставим присутствовал (pass=False)
-        #   отмена → пропуск (pass=True)
-        #   иначе → показываем в "нужно внимание"
-        _at_auto_present    = []  # pass=False (присутствовал)
-        _at_auto_cancelled  = []  # pass=True  (пропуск — подтверждаем)
-        _at_needs_attention = []  # показываем, не трогаем
+        # ── Классифицируем Accepted=False записи ───────────────────────────
+        # Обрабатываем только два случая:
+        #   1. Pass=True + Accepted=False → пропуск стоит, подтверждаем
+        #   2. Pass=False + Accepted=False + урок был → присутствовал
+        # Всё остальное (нет отчёта → нет посещаемости) = нормально, не трогаем
+        _at_auto_present   = []  # pass=False → присутствовал
+        _at_auto_cancelled = []  # pass=True  → подтверждаем пропуск
 
         for _at_rec in _at_eus:
             _at_eu_id     = _at_rec.get("EdUnitId") or _at_rec.get("Id")
@@ -3472,50 +3470,39 @@ with tab8:
                 }
 
                 if _at_day.get("Pass") is True:
-                    # Пропуск уже выставлен — просто подтверждаем, не меняем Pass
+                    # Пропуск уже выставлен (Pass=True) но Accepted=False → подтверждаем
                     _at_auto_cancelled.append(_at_entry)
                 elif (_at_eu_id, _at_d) in _at_lesson_happened:
                     # Урок состоялся (есть отчёт по группе) → студент присутствовал
                     _at_auto_present.append(_at_entry)
-                elif _at_d in _at_cancelled_dates.get(_at_eu_id, set()):
-                    # Урок отменён
-                    _at_auto_cancelled.append(_at_entry)
-                else:
-                    _at_needs_attention.append(_at_entry)
+                # else: нет отчёта → посещаемость не стоит → нормально, не трогаем
 
         # Сохраняем в session_state чтобы не перезагружать при нажатии кнопки
         st.session_state["at_auto_present"]    = _at_auto_present
         st.session_state["at_auto_cancelled"]  = _at_auto_cancelled
-        st.session_state["at_needs_attention"] = _at_needs_attention
-        st.session_state["at_period"]          = (_at_from_str, _at_to_str)
+        st.session_state["at_period"] = (_at_from_str, _at_to_str)
 
     # ── Показываем результат (из session_state) ──────────────────────────────
-    _at_auto_present    = st.session_state.get("at_auto_present")
-    _at_auto_cancelled  = st.session_state.get("at_auto_cancelled")
-    _at_needs_attention = st.session_state.get("at_needs_attention")
+    _at_auto_present   = st.session_state.get("at_auto_present")
+    _at_auto_cancelled = st.session_state.get("at_auto_cancelled")
 
     if _at_auto_present is not None:
         st.markdown("---")
-        _at_p_n  = len(_at_auto_present)
-        _at_c_n  = len(_at_auto_cancelled)
-        _at_na_n = len(_at_needs_attention)
+        _at_p_n = len(_at_auto_present)
+        _at_c_n = len(_at_auto_cancelled)
 
         # Итоговые метрики
-        _at_m1, _at_m2, _at_m3 = st.columns(3)
-        _at_m1.metric("✅ Есть отчёт",   f"{_at_p_n} уч.", help="pass=false → присутствовал")
-        _at_m2.metric("🚫 Отмена урока", f"{_at_c_n} уч.", help="pass=true → пропуск (урок отменён)")
-        _at_m3.metric("⚠️ Без данных",   f"{_at_na_n} уч.", help="pass=true → пропуск (нет отчёта и нет отмены)")
+        _at_m1, _at_m2 = st.columns(2)
+        _at_m1.metric("✅ Урок был → присутствовал", f"{_at_p_n} уч.",
+                       help="Pass=false — урок состоялся (есть отчёт по группе)")
+        _at_m2.metric("🚫 Пропуск → подтвердить",   f"{_at_c_n} уч.",
+                       help="Pass=true — пропуск уже стоит, убираем знак вопроса")
 
-        # ── Единая кнопка: проставить всем ──────────────────────────────────
-        # Все три категории → один запрос:
-        #   • есть отчёт     → pass=True  (присутствовал)
-        #   • отмена урока   → pass=False (отменён)
-        #   • без данных     → pass=True  (пропуск, аналогично основной вкладке)
-        _at_all_to_mark = _at_auto_present + _at_auto_cancelled + _at_needs_attention
+        _at_all_to_mark = _at_auto_present + _at_auto_cancelled
         if _at_all_to_mark:
             st.markdown("")
             if st.button(
-                f"🚀 Проставить посещаемость для всех {len(_at_all_to_mark)} учеников",
+                f"🚀 Проставить посещаемость для {len(_at_all_to_mark)} учеников",
                 type="primary",
                 key="at_apply",
             ):
@@ -3536,15 +3523,10 @@ with tab8:
                     return item
 
                 for _at_e in _at_auto_present:
-                    # pass=False → присутствовал (урок состоялся, отчёт написан)
-                    _at_batch.append(_at_make_item(_at_e, False))
+                    _at_batch.append(_at_make_item(_at_e, False))   # присутствовал
                 for _at_e in _at_auto_cancelled:
-                    # pass=True → пропуск (урок отменён)
-                    _at_batch.append(_at_make_item(_at_e, True, _at_e["existing_desc"] or "Отмена занятия"))
-                for _at_e in _at_needs_attention:
-                    _at_batch.append(_at_make_item(_at_e, True))
+                    _at_batch.append(_at_make_item(_at_e, True))    # пропуск (уже стоял)
 
-                # Показываем первый элемент батча для отладки
                 with st.expander("🛠 Отладка: пример запроса (первая запись)", expanded=False):
                     if _at_batch:
                         st.json(_at_batch[0])
@@ -3568,24 +3550,20 @@ with tab8:
                                 _at_ok += len(_at_chunk)
                             else:
                                 _at_err += len(_at_chunk)
-                                _at_errs.append(
-                                    f"HTTP {_at_resp.status_code}: {_at_resp.text[:300]}"
-                                )
+                                _at_errs.append(f"HTTP {_at_resp.status_code}: {_at_resp.text[:300]}")
                         except Exception as _at_ex:
                             _at_err += len(_at_chunk)
                             _at_errs.append(str(_at_ex))
                             _at_api_responses.append(f"Пакет {_i//100+1}: Exception — {_at_ex}")
 
-                # Всегда показываем ответ API для отладки
                 with st.expander("🛠 Ответ сервера HolliHop", expanded=True):
                     for _at_ar in _at_api_responses:
                         st.code(_at_ar)
 
                 if _at_err == 0:
                     st.success(f"✅ Запрос принят для **{_at_ok}** учеников — проверь HolliHop через минуту")
-                    st.session_state["at_auto_present"]    = []
-                    st.session_state["at_auto_cancelled"]  = []
-                    st.session_state["at_needs_attention"] = []
+                    st.session_state["at_auto_present"]   = []
+                    st.session_state["at_auto_cancelled"] = []
                 else:
                     st.warning(f"Готово: {_at_ok} ✅  /  {_at_err} ❌")
                     for _at_em in _at_errs:
@@ -3713,27 +3691,3 @@ with tab8:
                     else:
                         st.warning(f"Исправлено: {_at_fix_ok} ✅ / {_at_fix_err} ❌")
 
-        # ── Список «требует внимания» (показываем до нажатия кнопки) ────────
-        if _at_needs_attention:
-            st.markdown("---")
-            st.markdown(f"### ⚠️ Без данных — {_at_na_n} уч.")
-            st.caption("Нет отчёта и нет признака отмены — будут отмечены как пропуск при нажатии кнопки выше")
-
-            _at_by_teacher = defaultdict(lambda: defaultdict(list))
-            for _at_r in _at_needs_attention:
-                _at_ts = _at_r["teachers"] or ["Без преподавателя"]
-                for _at_t in _at_ts:
-                    _at_by_teacher[_at_t][_at_r["date"]].append(_at_r)
-
-            for _at_teacher in sorted(_at_by_teacher):
-                _at_t_count = sum(len(v) for v in _at_by_teacher[_at_teacher].values())
-                with st.expander(f"👤 {_at_teacher}  —  {_at_t_count} чел.", expanded=True):
-                    for _at_d in sorted(_at_by_teacher[_at_teacher]):
-                        try:
-                            _at_d_fmt = datetime.strptime(_at_d, "%Y-%m-%d").strftime("%d.%m.%Y")
-                        except Exception:
-                            _at_d_fmt = _at_d
-                        st.markdown(f"**{_at_d_fmt}**")
-                        for _at_r2 in _at_by_teacher[_at_teacher][_at_d]:
-                            _at_grp = f" · _{_at_r2['group']}_" if _at_r2["group"] else ""
-                            st.markdown(f"- {_at_r2['student']}{_at_grp}")
