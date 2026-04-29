@@ -3439,6 +3439,7 @@ with tab8:
         # Всё остальное (нет отчёта → нет посещаемости) = нормально, не трогаем
         _at_auto_present   = []  # pass=False → присутствовал
         _at_auto_cancelled = []  # pass=True  → подтверждаем пропуск
+        _at_unset          = []  # нет отчёта, нет пропуска → показываем, просим проставить
 
         for _at_rec in _at_eus:
             _at_eu_id     = _at_rec.get("EdUnitId") or _at_rec.get("Id")
@@ -3475,28 +3476,35 @@ with tab8:
                 elif (_at_eu_id, _at_d) in _at_lesson_happened:
                     # Урок состоялся (есть отчёт по группе) → студент присутствовал
                     _at_auto_present.append(_at_entry)
-                # else: нет отчёта → посещаемость не стоит → нормально, не трогаем
+                else:
+                    # Нет отчёта, нет пропуска → посещаемость не проставлена, показываем
+                    _at_unset.append(_at_entry)
 
         # Сохраняем в session_state чтобы не перезагружать при нажатии кнопки
-        st.session_state["at_auto_present"]    = _at_auto_present
-        st.session_state["at_auto_cancelled"]  = _at_auto_cancelled
-        st.session_state["at_period"] = (_at_from_str, _at_to_str)
+        st.session_state["at_auto_present"]   = _at_auto_present
+        st.session_state["at_auto_cancelled"] = _at_auto_cancelled
+        st.session_state["at_unset"]          = _at_unset
+        st.session_state["at_period"]         = (_at_from_str, _at_to_str)
 
     # ── Показываем результат (из session_state) ──────────────────────────────
     _at_auto_present   = st.session_state.get("at_auto_present")
     _at_auto_cancelled = st.session_state.get("at_auto_cancelled")
+    _at_unset          = st.session_state.get("at_unset")
 
     if _at_auto_present is not None:
         st.markdown("---")
-        _at_p_n = len(_at_auto_present)
-        _at_c_n = len(_at_auto_cancelled)
+        _at_p_n  = len(_at_auto_present)
+        _at_c_n  = len(_at_auto_cancelled)
+        _at_un_n = len(_at_unset) if _at_unset else 0
 
         # Итоговые метрики
-        _at_m1, _at_m2 = st.columns(2)
+        _at_m1, _at_m2, _at_m3 = st.columns(3)
         _at_m1.metric("✅ Урок был → присутствовал", f"{_at_p_n} уч.",
                        help="Pass=false — урок состоялся (есть отчёт по группе)")
         _at_m2.metric("🚫 Пропуск → подтвердить",   f"{_at_c_n} уч.",
                        help="Pass=true — пропуск уже стоит, убираем знак вопроса")
+        _at_m3.metric("❓ Не проставлено",           f"{_at_un_n} уч.",
+                       help="Нет ни пропуска, ни отчёта — нужно уточнить у преподавателя")
 
         _at_all_to_mark = _at_auto_present + _at_auto_cancelled
         if _at_all_to_mark:
@@ -3570,6 +3578,94 @@ with tab8:
                         st.caption(f"⚠️ {_at_em}")
         else:
             st.success("✅ Нет записей для проставления — всё уже отмечено!")
+
+        # ── Не проставленная посещаемость + рассылка в Пачку ────────────────
+        if _at_unset:
+            st.markdown("---")
+            st.markdown(f"### ❓ Не проставлена посещаемость — {_at_un_n} уч.")
+            st.caption("Нет ни пропуска, ни отчёта. Нужно уточнить у преподавателя.")
+
+            # Группируем по преподавателю → дата → ученики
+            _at_un_by_t = defaultdict(lambda: defaultdict(list))
+            for _at_ur in _at_unset:
+                for _at_ut in (_at_ur["teachers"] or ["—"]):
+                    _at_un_by_t[_at_ut][_at_ur["date"]].append(_at_ur["student"])
+
+            # Показываем список
+            for _at_ut in sorted(_at_un_by_t):
+                _at_ut_cnt = sum(len(v) for v in _at_un_by_t[_at_ut].values())
+                with st.expander(f"👤 {_at_ut}  —  {_at_ut_cnt} уч.", expanded=True):
+                    for _at_ud in sorted(_at_un_by_t[_at_ut]):
+                        try:
+                            _at_ud_fmt = datetime.strptime(_at_ud, "%Y-%m-%d").strftime("%d.%m.%Y")
+                        except Exception:
+                            _at_ud_fmt = _at_ud
+                        _at_ust = ", ".join(_at_un_by_t[_at_ut][_at_ud])
+                        st.markdown(f"**{_at_ud_fmt}:** {_at_ust}")
+
+            # ── Рассылка в Пачку ────────────────────────────────────────────
+            st.markdown("---")
+            st.markdown("#### 📨 Рассылка в Пачку")
+
+            # Шаблон сообщения
+            _at_default_msg = (
+                "Добрый день! Просьба проставить посещаемость в системе HolliHop за следующие даты:\n\n"
+                "{details}\n\n"
+                "Спасибо!"
+            )
+            _at_msg_tpl = st.text_area(
+                "Шаблон сообщения (`{details}` → даты и ученики, `{teacher}` → имя преподавателя)",
+                value=_at_default_msg,
+                height=160,
+                key="at_msg_tpl",
+            )
+
+            # Предпросмотр для каждого преподавателя
+            with st.expander("👁 Предпросмотр сообщений", expanded=False):
+                for _at_ut in sorted(_at_un_by_t):
+                    _at_details_lines = []
+                    for _at_ud in sorted(_at_un_by_t[_at_ut]):
+                        try:
+                            _at_ud_fmt = datetime.strptime(_at_ud, "%Y-%m-%d").strftime("%d.%m.%Y")
+                        except Exception:
+                            _at_ud_fmt = _at_ud
+                        _at_ust = ", ".join(_at_un_by_t[_at_ut][_at_ud])
+                        _at_details_lines.append(f"• {_at_ud_fmt}: {_at_ust}")
+                    _at_preview = _at_msg_tpl.replace("{details}", "\n".join(_at_details_lines)).replace("{teacher}", _at_ut.split()[0])
+                    st.markdown(f"**{_at_ut}:**")
+                    st.code(_at_preview, language=None)
+
+            if st.button("📨 Отправить всем в Пачку", type="primary", key="at_send_pachca"):
+                if not pachca_token:
+                    st.error("Токен Пачки не настроен — откройте ⚙️")
+                else:
+                    _at_pachca = PachcaAPI(pachca_token)
+                    with st.spinner("Загружаю пользователей Пачки…"):
+                        _at_pachca.load_users()
+                    _at_sent, _at_not_found = [], []
+                    for _at_ut in sorted(_at_un_by_t):
+                        _at_details_lines = []
+                        for _at_ud in sorted(_at_un_by_t[_at_ut]):
+                            try:
+                                _at_ud_fmt = datetime.strptime(_at_ud, "%Y-%m-%d").strftime("%d.%m.%Y")
+                            except Exception:
+                                _at_ud_fmt = _at_ud
+                            _at_ust = ", ".join(_at_un_by_t[_at_ut][_at_ud])
+                            _at_details_lines.append(f"• {_at_ud_fmt}: {_at_ust}")
+                        _at_msg = _at_msg_tpl.replace("{details}", "\n".join(_at_details_lines)).replace("{teacher}", _at_ut.split()[0])
+                        _at_user = _at_pachca.find_user(_at_ut)
+                        if not _at_user:
+                            _at_not_found.append(_at_ut)
+                            continue
+                        try:
+                            _at_pachca.send_dm(_at_user["id"], _at_msg)
+                            _at_sent.append(_at_ut)
+                        except Exception as _at_ex:
+                            _at_not_found.append(f"{_at_ut} (ошибка: {_at_ex})")
+                    if _at_sent:
+                        st.success(f"✅ Отправлено: {', '.join(_at_sent)}")
+                    if _at_not_found:
+                        st.warning(f"⚠️ Не найдены в Пачке: {', '.join(_at_not_found)}")
 
         # ── Исправить ошибочно выставленные пропуски ────────────────────────
         st.markdown("---")
