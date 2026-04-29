@@ -3367,12 +3367,13 @@ with tab8:
         _at_to_str   = _at_date_to.strftime("%Y-%m-%d")
 
         with st.spinner("Загрузка данных из HolliHop…"):
-            # Преподаватели привязаны к EdUnit → нужен eu_map
             _at_ed_units = api_paginated(BASE_URL, api_key, "GetEdUnits", "EdUnits", params={
                 "types": "Group,MiniGroup,Individual",
                 "dateFrom": _at_from_str, "dateTo": _at_to_str, "queryDays": "true",
             })
+            # eu_map: преподаватели + отменённые даты по каждому EdUnit
             _at_eu_map = {}
+            _at_cancelled_dates = defaultdict(set)  # eu_id → {dates}
             for _at_eu in _at_ed_units:
                 _at_eu_id, _at_t_names = _at_eu["Id"], []
                 for _at_si in _at_eu.get("ScheduleItems", []):
@@ -3383,46 +3384,159 @@ with tab8:
                     "name":     _at_eu.get("Name", ""),
                     "teachers": _at_t_names,
                 }
+                # Ищем отменённые дни в расписании EdUnit
+                for _at_eday in _at_eu.get("Days", []):
+                    _at_eday_d = _at_eday.get("Date", "")
+                    if not _at_eday_d:
+                        continue
+                    if (
+                        _at_eday.get("IsCancelled")
+                        or _at_eday.get("Cancelled")
+                        or str(_at_eday.get("Status", "")).lower() in ("cancelled", "cancel", "отмена")
+                        or "отмен" in str(_at_eday.get("Description", "")).lower()
+                        or "отмен" in str(_at_eday.get("Comment", "")).lower()
+                    ):
+                        _at_cancelled_dates[_at_eu_id].add(_at_eday_d)
 
             _at_eus = api_paginated(BASE_URL, api_key, "GetEdUnitStudents", "EdUnitStudents", params={
                 "dateFrom": _at_from_str, "dateTo": _at_to_str, "queryDays": "true",
             })
+            _at_test_results = load_test_results(BASE_URL, api_key, _at_from_str, _at_to_str)
 
-        # ── Собираем записи где Accepted=False ("?" в HolliHop) ─────────────
-        # Accepted=False → посещаемость не отмечена ("?")
-        # Accepted=True  → отмечена (Pass=True присутствовал, Pass=False пропуск)
-        _at_rows = []
+        # Быстрый set для проверки наличия отчёта: (EdUnitId, StudentClientId, Date)
+        _at_has_report = {
+            (r.get("EdUnitId"), r.get("StudentClientId"), r.get("Date"))
+            for r in _at_test_results
+        }
+
+        # ── Классифицируем все Accepted=False записи ────────────────────────
+        _at_auto_present   = []   # есть отчёт → pass=True
+        _at_auto_cancelled = []   # урок отменён → pass=False
+        _at_needs_attention = []  # ничего нет → показываем
+
         for _at_rec in _at_eus:
-            _at_eu_id   = _at_rec.get("EdUnitId") or _at_rec.get("Id")
-            _at_sname   = _at_rec.get("StudentName") or _at_rec.get("ClientName") or "—"
-            _at_group   = _at_rec.get("EdUnitName") or _at_eu_map.get(_at_eu_id, {}).get("name", "")
+            _at_eu_id    = _at_rec.get("EdUnitId") or _at_rec.get("Id")
+            _at_client_id = _at_rec.get("StudentClientId")
+            _at_sname    = _at_rec.get("StudentName") or _at_rec.get("ClientName") or "—"
+            _at_group    = _at_rec.get("EdUnitName") or _at_eu_map.get(_at_eu_id, {}).get("name", "")
             _at_teachers = _at_eu_map.get(_at_eu_id, {}).get("teachers", [])
 
             for _at_day in _at_rec.get("Days", []):
                 _at_d = _at_day.get("Date", "")
                 if not _at_d or _at_d < _at_from_str or _at_d > _at_to_str:
                     continue
-                # Accepted=False → посещаемость не выставлена
                 if _at_day.get("Accepted"):
-                    continue
-                _at_rows.append({
-                    "date":     _at_d,
-                    "student":  _at_sname,
-                    "group":    _at_group,
-                    "teachers": _at_teachers,
-                })
+                    continue  # уже отмечена
 
+                _at_entry = {
+                    "edUnitId":        _at_eu_id,
+                    "studentClientId": _at_client_id,
+                    "date":            _at_d,
+                    "student":         _at_sname,
+                    "group":           _at_group,
+                    "teachers":        _at_teachers,
+                    "existing_desc":   (_at_day.get("Description") or "").strip(),
+                }
+
+                if (_at_eu_id, _at_client_id, _at_d) in _at_has_report:
+                    _at_auto_present.append(_at_entry)
+                elif _at_d in _at_cancelled_dates.get(_at_eu_id, set()):
+                    _at_auto_cancelled.append(_at_entry)
+                else:
+                    _at_needs_attention.append(_at_entry)
+
+        # Сохраняем в session_state чтобы не перезагружать при нажатии кнопки
+        st.session_state["at_auto_present"]    = _at_auto_present
+        st.session_state["at_auto_cancelled"]  = _at_auto_cancelled
+        st.session_state["at_needs_attention"] = _at_needs_attention
+        st.session_state["at_period"]          = (_at_from_str, _at_to_str)
+
+    # ── Показываем результат (из session_state) ──────────────────────────────
+    _at_auto_present    = st.session_state.get("at_auto_present")
+    _at_auto_cancelled  = st.session_state.get("at_auto_cancelled")
+    _at_needs_attention = st.session_state.get("at_needs_attention")
+
+    if _at_auto_present is not None:
         st.markdown("---")
+        _at_p_n  = len(_at_auto_present)
+        _at_c_n  = len(_at_auto_cancelled)
+        _at_na_n = len(_at_needs_attention)
 
-        if not _at_rows:
-            st.success("✅ Вся посещаемость отмечена — незаполненных записей нет!")
+        # Итоговые метрики
+        _at_m1, _at_m2, _at_m3 = st.columns(3)
+        _at_m1.metric("✅ Есть отчёт",   f"{_at_p_n} уч.", help="Будет отмечено как присутствовал")
+        _at_m2.metric("🚫 Отмена урока", f"{_at_c_n} уч.", help="Будет отмечено как отсутствовал (отмена)")
+        _at_m3.metric("⚠️ Без данных",   f"{_at_na_n} уч.", help="Нет ни отчёта, ни отмены — требует внимания")
+
+        # Кнопка автопроставления
+        _at_to_mark = _at_auto_present + _at_auto_cancelled
+        if _at_to_mark:
+            st.markdown("")
+            if st.button(
+                f"🚀 Проставить посещаемость для {len(_at_to_mark)} учеников",
+                type="primary",
+                key="at_apply",
+            ):
+                _at_ok, _at_err = 0, 0
+                _at_errs = []
+                _at_batch = []
+                for _at_e in _at_auto_present:
+                    _at_batch.append({
+                        "edUnitId":        _at_e["edUnitId"],
+                        "studentClientId": _at_e["studentClientId"],
+                        "date":            _at_e["date"],
+                        "pass":            True,
+                        "description":     _at_e["existing_desc"],
+                    })
+                for _at_e in _at_auto_cancelled:
+                    _at_batch.append({
+                        "edUnitId":        _at_e["edUnitId"],
+                        "studentClientId": _at_e["studentClientId"],
+                        "date":            _at_e["date"],
+                        "pass":            False,
+                        "description":     _at_e["existing_desc"] or "Отмена занятия",
+                    })
+
+                with st.spinner(f"Отправляем {len(_at_batch)} записей в HolliHop…"):
+                    _at_url = f"{BASE_URL}/SetStudentPasses"
+                    for _i in range(0, len(_at_batch), 100):
+                        _at_chunk = _at_batch[_i:_i + 100]
+                        try:
+                            _at_resp = requests.post(
+                                _at_url,
+                                params={"authkey": api_key},
+                                json=_at_chunk,
+                                timeout=60,
+                            )
+                            if _at_resp.status_code in (200, 204):
+                                _at_ok += len(_at_chunk)
+                            else:
+                                _at_err += len(_at_chunk)
+                                _at_errs.append(f"HTTP {_at_resp.status_code}: {_at_resp.text[:200]}")
+                        except Exception as _at_ex:
+                            _at_err += len(_at_chunk)
+                            _at_errs.append(str(_at_ex))
+
+                if _at_err == 0:
+                    st.success(f"✅ Посещаемость проставлена для **{_at_ok}** учеников!")
+                    # Очищаем авто-списки — они уже обработаны
+                    st.session_state["at_auto_present"]   = []
+                    st.session_state["at_auto_cancelled"] = []
+                else:
+                    st.warning(f"Готово: {_at_ok} ✅ / {_at_err} ❌")
+                    for _at_em in _at_errs:
+                        st.caption(f"⚠️ {_at_em}")
         else:
-            _at_total = len(_at_rows)
-            st.error(f"⚠️ Посещаемость не отмечена у **{_at_total}** {'ученика' if _at_total == 1 else 'учеников'}")
+            st.success("✅ Нет записей для автопроставления — всё уже отмечено!")
 
-            # Группировка по преподавателю → дата → ученики
+        # ── Список «требует внимания» ────────────────────────────────────────
+        if _at_needs_attention:
+            st.markdown("---")
+            st.markdown(f"### ⚠️ Требуют внимания — {_at_na_n} уч.")
+            st.caption("Нет ни написанного отчёта, ни признака отмены урока")
+
             _at_by_teacher = defaultdict(lambda: defaultdict(list))
-            for _at_r in _at_rows:
+            for _at_r in _at_needs_attention:
                 _at_ts = _at_r["teachers"] or ["Без преподавателя"]
                 for _at_t in _at_ts:
                     _at_by_teacher[_at_t][_at_r["date"]].append(_at_r)
@@ -3439,3 +3553,6 @@ with tab8:
                         for _at_r2 in _at_by_teacher[_at_teacher][_at_d]:
                             _at_grp = f" · _{_at_r2['group']}_" if _at_r2["group"] else ""
                             st.markdown(f"- {_at_r2['student']}{_at_grp}")
+        elif _at_auto_present is not None:
+            st.markdown("---")
+            st.success("✅ Все записи покрыты — нет учеников без данных!")
