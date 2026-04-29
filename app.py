@@ -3425,23 +3425,29 @@ with tab8:
         # Фильтр по преподавателю
         _at_chosen_teacher = st.session_state.get("at_teacher_filter", "Все преподаватели")
 
-        # Быстрый set для проверки наличия отчёта: (EdUnitId, StudentClientId, Date)
-        _at_has_report = {
-            (r.get("EdUnitId"), r.get("StudentClientId"), r.get("Date"))
+        # Урок состоялся если есть хоть один отчёт по EdUnit+Date (любой студент)
+        # Отчёт (GetEdUnitTestResults) ≠ Комментарий (Day.Description)
+        _at_lesson_happened = {
+            (r.get("EdUnitId"), r.get("Date"))
             for r in _at_test_results
         }
 
         # ── Классифицируем все Accepted=False записи ────────────────────────
-        _at_auto_present   = []   # есть отчёт → pass=False (присутствовал)
-        _at_auto_cancelled = []   # урок отменён → pass=True (пропуск)
-        _at_needs_attention = []  # ничего нет → показываем
+        # Pass=True + Accepted=False → пропуск стоит, но "?" не убран → подтверждаем пропуск
+        # Pass=False + Accepted=False → ничего не стоит:
+        #   урок был (есть отчёт по группе) → ставим присутствовал (pass=False)
+        #   отмена → пропуск (pass=True)
+        #   иначе → показываем в "нужно внимание"
+        _at_auto_present    = []  # pass=False (присутствовал)
+        _at_auto_cancelled  = []  # pass=True  (пропуск — подтверждаем)
+        _at_needs_attention = []  # показываем, не трогаем
 
         for _at_rec in _at_eus:
-            _at_eu_id    = _at_rec.get("EdUnitId") or _at_rec.get("Id")
+            _at_eu_id     = _at_rec.get("EdUnitId") or _at_rec.get("Id")
             _at_client_id = _at_rec.get("StudentClientId")
-            _at_sname    = _at_rec.get("StudentName") or _at_rec.get("ClientName") or "—"
-            _at_group    = _at_rec.get("EdUnitName") or _at_eu_map.get(_at_eu_id, {}).get("name", "")
-            _at_teachers = _at_eu_map.get(_at_eu_id, {}).get("teachers", [])
+            _at_sname     = _at_rec.get("StudentName") or _at_rec.get("ClientName") or "—"
+            _at_group     = _at_rec.get("EdUnitName") or _at_eu_map.get(_at_eu_id, {}).get("name", "")
+            _at_teachers  = _at_eu_map.get(_at_eu_id, {}).get("teachers", [])
 
             # Фильтр по выбранному преподавателю
             if _at_chosen_teacher != "Все преподаватели" and _at_chosen_teacher not in _at_teachers:
@@ -3451,13 +3457,9 @@ with tab8:
                 _at_d = _at_day.get("Date", "")
                 if not _at_d or _at_d < _at_from_str or _at_d > _at_to_str:
                     continue
-                # Пропускаем только если Accepted=True — посещаемость подтверждена
-                # Pass=True + Accepted=False = пропуск стоит, но знак вопроса не убран
-                # → тоже обрабатываем
                 if _at_day.get("Accepted"):
-                    continue
+                    continue  # посещаемость уже подтверждена — пропускаем
 
-                _at_already_pass = _at_day.get("Pass") is True  # пропуск уже стоит, но Accepted=False
                 _at_entry = {
                     "edUnitId":        _at_eu_id,
                     "studentClientId": _at_client_id,
@@ -3467,16 +3469,16 @@ with tab8:
                     "teachers":        _at_teachers,
                     "existing_desc":   (_at_day.get("Description") or "").strip(),
                     "minutes":         _at_day.get("Minutes"),
-                    "already_pass":    _at_already_pass,
                 }
 
-                if (_at_eu_id, _at_client_id, _at_d) in _at_has_report:
-                    # Есть отчёт → присутствовал (даже если стоял пропуск — исправляем)
+                if _at_day.get("Pass") is True:
+                    # Пропуск уже выставлен — просто подтверждаем, не меняем Pass
+                    _at_auto_cancelled.append(_at_entry)
+                elif (_at_eu_id, _at_d) in _at_lesson_happened:
+                    # Урок состоялся (есть отчёт по группе) → студент присутствовал
                     _at_auto_present.append(_at_entry)
                 elif _at_d in _at_cancelled_dates.get(_at_eu_id, set()):
-                    _at_auto_cancelled.append(_at_entry)
-                elif _at_already_pass:
-                    # Пропуск уже стоит, Accepted=False → просто подтверждаем (pass=True снова)
+                    # Урок отменён
                     _at_auto_cancelled.append(_at_entry)
                 else:
                     _at_needs_attention.append(_at_entry)
