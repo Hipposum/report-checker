@@ -3861,6 +3861,72 @@ with tab8:
 
         st.divider()
 
+        # ── Шаблон напоминания ────────────────────────────────────────────────
+        _at_sender_name = cfg.get("reviewer_name", "Артём")
+        _at_reminder_default = (
+            "Привет, {first_name}!\n\n"
+            "{sender} на связи. Хотел лично написать — посещаемость за {dates} "
+            "пока не проставлена в HolliHop. Знаю, что нагрузка большая, "
+            "но для нас сейчас это прямо критично — смотрим отчётность, "
+            "и пробелы сразу бросаются в глаза директору.\n\n"
+            "Если есть какие-то сложности с системой или вопросы — напиши, "
+            "помогу разобраться. Буду очень признателен, если найдёшь пару минут сегодня 🙏\n\n"
+            "Спасибо!"
+        )
+        with st.expander("✏️ Шаблон напоминания", expanded=False):
+            st.caption("`{first_name}` — имя преподавателя, `{dates}` — даты, `{sender}` — твоё имя")
+            _at_reminder_tpl = st.text_area(
+                "Текст",
+                value=_at_reminder_default,
+                height=200,
+                key="at_reminder_tpl",
+            )
+        _at_reminder_tpl = st.session_state.get("at_reminder_tpl", _at_reminder_default)
+
+        # Кнопка — отправить всем просроченным сразу
+        _at_pending_teachers = sorted({
+            r["teacher"] for r in _at_ath_pending
+        })
+        if _at_pending_teachers and pachca_token:
+            if st.button(
+                f"📨 Отправить напоминание всем ожидающим ({len(_at_pending_teachers)} чел.)",
+                key="at_remind_all",
+                type="primary",
+            ):
+                _at_rem_pachca = PachcaAPI(pachca_token)
+                with st.spinner("Отправляю напоминания…"):
+                    _at_rem_pachca.load_users()
+                _at_rem_sent, _at_rem_fail = [], []
+                for _at_rt in _at_pending_teachers:
+                    _at_rt_pend_dates = sorted({
+                        r["date"] for r in _at_ath_pending if r["teacher"] == _at_rt
+                    })
+                    _at_rt_dates_fmt = ", ".join(
+                        datetime.strptime(d, "%Y-%m-%d").strftime("%d.%m") for d in _at_rt_pend_dates
+                    )
+                    _at_rt_first = _at_rt.split()[1] if len(_at_rt.split()) > 1 else _at_rt.split()[0]
+                    _at_rt_msg = (
+                        _at_reminder_tpl
+                        .replace("{first_name}", _at_rt_first)
+                        .replace("{dates}", _at_rt_dates_fmt)
+                        .replace("{sender}", _at_sender_name)
+                    )
+                    _at_rt_user = _at_rem_pachca.find_user(_at_rt)
+                    if not _at_rt_user:
+                        _at_rem_fail.append(_at_rt)
+                        continue
+                    try:
+                        _at_rem_pachca.send_dm(_at_rt_user["id"], _at_rt_msg)
+                        _at_rem_sent.append(_at_rt)
+                    except Exception as _re:
+                        _at_rem_fail.append(f"{_at_rt} ({_re})")
+                if _at_rem_sent:
+                    st.success(f"✅ Напоминания отправлены: {', '.join(_at_rem_sent)}")
+                if _at_rem_fail:
+                    st.warning(f"⚠️ Не удалось: {', '.join(_at_rem_fail)}")
+
+        st.divider()
+
         # ── Фильтр ───────────────────────────────────────────────────────────
         _at_ath_status_filter = st.selectbox(
             "Фильтр по статусу",
@@ -3908,6 +3974,42 @@ with tab8:
                 f"{_at_t_icon} **{_at_t}**{_at_t_badge}  ·  {len(_at_t_recs)} записей",
                 expanded=(_at_t_pend > 0),
             ):
+                # Кнопка напоминания для конкретного преподавателя (только если есть ожидающие)
+                if _at_t_pend and pachca_token:
+                    _at_t_pend_dates = sorted({
+                        r["date"] for r in _at_t_recs if r.get("status") == "message_sent"
+                    })
+                    _at_t_dates_fmt = ", ".join(
+                        datetime.strptime(d, "%Y-%m-%d").strftime("%d.%m") for d in _at_t_pend_dates
+                    )
+                    _at_t_first = _at_t.split()[1] if len(_at_t.split()) > 1 else _at_t.split()[0]
+                    _at_t_preview_msg = (
+                        _at_reminder_tpl
+                        .replace("{first_name}", _at_t_first)
+                        .replace("{dates}", _at_t_dates_fmt)
+                        .replace("{sender}", _at_sender_name)
+                    )
+                    _atr_col1, _atr_col2 = st.columns([1, 3])
+                    if _atr_col1.button(
+                        "📨 Напомнить",
+                        key=f"at_remind_{_at_t}",
+                        use_container_width=True,
+                    ):
+                        _atr_pachca = PachcaAPI(pachca_token)
+                        _atr_pachca.load_users()
+                        _atr_user = _atr_pachca.find_user(_at_t)
+                        if _atr_user:
+                            try:
+                                _atr_pachca.send_dm(_atr_user["id"], _at_t_preview_msg)
+                                st.success("✅ Напоминание отправлено")
+                            except Exception as _atre:
+                                st.error(f"Ошибка: {_atre}")
+                        else:
+                            st.warning("Не найден в Пачке")
+                    with _atr_col2.expander("👁 Предпросмотр", expanded=False):
+                        st.code(_at_t_preview_msg, language=None)
+                    st.divider()
+
                 # Сортируем записи: сначала непроставленные (по дате, старые вверху), потом проставленные
                 _at_t_recs_sorted = sorted(
                     _at_t_recs,
@@ -3926,8 +4028,7 @@ with tab8:
                     except Exception:
                         _at_hd = _at_hr.get("date", "")
 
-                    _at_hstus = ", ".join(_at_hr.get("students", []))
-                    _at_cnt   = _at_hr.get("count", 0)
+                    _at_cnt = _at_hr.get("count", 0)
 
                     if _at_is_urgent:
                         _at_status_badge = f'<span style="background:#ef4444;color:white;padding:2px 8px;border-radius:4px;font-size:0.8em">🔴 {_at_days} дн. без ответа</span>'
