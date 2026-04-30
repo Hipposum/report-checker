@@ -422,8 +422,40 @@ def save_history(records: list):
 # Запись: {id, teacher, date, students[], count, status, sent_at, checked_at}
 # Статусы: message_sent → handled (проставили) | pending (ещё не проставили)
 
-def load_attendance_history() -> list:
-    """Загружает историю посещаемости из отдельного файла."""
+def _ath_row_to_dict(row: dict) -> dict:
+    """Конвертирует строку Supabase → dict истории посещаемости."""
+    row = dict(row)
+    if isinstance(row.get("students"), str):
+        try:    row["students"] = json.loads(row["students"])
+        except: row["students"] = []
+    elif not isinstance(row.get("students"), list):
+        row["students"] = []
+    row["count"] = int(row.get("count", 0))
+    return row
+
+def _ath_dict_to_row(rec: dict) -> dict:
+    """Конвертирует dict → строку Supabase (students → JSON)."""
+    row = dict(rec)
+    if isinstance(row.get("students"), list):
+        row["students"] = json.dumps(row["students"], ensure_ascii=False)
+    row["count"] = int(row.get("count", 0))
+    return row
+
+_ATH_CREATE_SQL = """
+CREATE TABLE IF NOT EXISTS attendance_history (
+    id          text PRIMARY KEY,
+    teacher     text,
+    date        text,
+    students    text,
+    count       integer DEFAULT 0,
+    status      text DEFAULT 'message_sent',
+    sent_at     text,
+    checked_at  text
+);
+""".strip()
+
+def _load_ath_from_json() -> list:
+    """Читает attendance_history.json (fallback)."""
     if os.path.exists(ATTENDANCE_HISTORY_FILE):
         try:
             with open(ATTENDANCE_HISTORY_FILE, encoding="utf-8") as _f:
@@ -434,10 +466,46 @@ def load_attendance_history() -> list:
             pass
     return []
 
+def load_attendance_history() -> list:
+    """Загружает историю посещаемости.
+    Приоритет: Supabase → автомиграция из JSON при первом запуске → JSON fallback.
+    """
+    sb, _ = _get_supabase_client()
+    if sb is not None:
+        try:
+            res = sb.table("attendance_history").select("*").execute()
+            if res.data:
+                return [_ath_row_to_dict(r) for r in res.data]
+            # Supabase пустой — мигрируем из JSON (первый запуск на Cloud)
+            local = _load_ath_from_json()
+            if local:
+                try:
+                    rows = [_ath_dict_to_row(r) for r in local]
+                    sb.table("attendance_history").upsert(rows).execute()
+                except Exception:
+                    pass
+            return local
+        except Exception:
+            pass
+    return _load_ath_from_json()
+
 def save_attendance_history(records: list):
-    """Сохраняет историю посещаемости в отдельный файл."""
-    with open(ATTENDANCE_HISTORY_FILE, "w", encoding="utf-8") as _f:
-        json.dump(records, _f, ensure_ascii=False, indent=2, default=str)
+    """Сохраняет историю посещаемости.
+    Пишет в Supabase (upsert по id); локальный JSON — только если Supabase недоступен.
+    """
+    saved = False
+    sb, _ = _get_supabase_client()
+    if sb is not None:
+        try:
+            rows = [_ath_dict_to_row(r) for r in records]
+            if rows:
+                sb.table("attendance_history").upsert(rows).execute()
+            saved = True
+        except Exception:
+            pass
+    if not saved:
+        with open(ATTENDANCE_HISTORY_FILE, "w", encoding="utf-8") as _f:
+            json.dump(records, _f, ensure_ascii=False, indent=2, default=str)
 
 
 @st.dialog("⚠️ Некорректный отчёт")
@@ -1274,6 +1342,40 @@ with _gear_col:
                     _ok, _msg = mirror_to_sheets(load_history())
                 (st.success if _ok else st.error)(f"{'✅' if _ok else '❌'} {_msg}")
 
+            # Таблица посещаемости
+            st.markdown("**📅 Таблица посещаемости (attendance_history)**")
+            try:
+                _ath_check = _sb.table("attendance_history").select("id", count="exact").execute()
+                _ath_n = _ath_check.count if _ath_check.count is not None else len(_ath_check.data or [])
+                st.caption(f"✅ Таблица найдена — {_ath_n} записей")
+                if st.button("📤 Перенести из JSON в Supabase", key="ath_migrate_btn",
+                             use_container_width=True, help="Разовая миграция при первом запуске"):
+                    _ath_local = _load_ath_from_json()
+                    if not _ath_local:
+                        st.warning("JSON пустой — нечего переносить")
+                    else:
+                        try:
+                            _ath_rows = [_ath_dict_to_row(r) for r in _ath_local]
+                            _sb.table("attendance_history").upsert(_ath_rows).execute()
+                            st.success(f"✅ Перенесено {len(_ath_rows)} записей")
+                        except Exception as _ae:
+                            st.error(f"Ошибка: {_ae}")
+            except Exception:
+                st.warning("⚠️ Таблица attendance_history не найдена — создай её в Supabase:")
+                st.code(_ATH_CREATE_SQL, language="sql")
+                st.caption("После создания таблицы нажми «Перенести из JSON» чтобы загрузить данные:")
+                if st.button("📤 Перенести из JSON в Supabase", key="ath_migrate_btn2",
+                             use_container_width=True):
+                    _ath_local2 = _load_ath_from_json()
+                    if _ath_local2:
+                        try:
+                            _sb.table("attendance_history").upsert(
+                                [_ath_dict_to_row(r) for r in _ath_local2]
+                            ).execute()
+                            st.success(f"✅ Перенесено {len(_ath_local2)} записей")
+                        except Exception as _ae2:
+                            st.error(f"Ошибка: {_ae2}")
+
             # Restore from JSON upload
             st.markdown("**📂 Восстановить из JSON-бэкапа**")
             _restore_file = st.file_uploader(
@@ -1351,6 +1453,16 @@ create table history (
 );
 alter table history enable row level security;
 create policy "allow_all" on history for all using (true) with check (true);
+
+create table attendance_history (
+  id text primary key,
+  teacher text, date text,
+  students text, count integer default 0,
+  status text default 'message_sent',
+  sent_at text, checked_at text
+);
+alter table attendance_history enable row level security;
+create policy "allow_all" on attendance_history for all using (true) with check (true);
 ```
 3. **Settings → API** → скопируй `URL` и `service_role key`
 4. Добавь в Streamlit Secrets:
