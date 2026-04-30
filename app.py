@@ -3797,40 +3797,159 @@ with tab8:
     if not _at_ath:
         st.info("Пока нет записей.")
     else:
-        _at_ath_pending = sum(1 for r in _at_ath if r.get("status") == "message_sent")
-        _at_ath_done    = sum(1 for r in _at_ath if r.get("status") == "handled")
-        _c1, _c2 = st.columns(2)
-        _c1.metric("⏳ Ожидают", _at_ath_pending)
-        _c2.metric("✅ Проставили", _at_ath_done)
+        _at_today_d = date.today()
 
+        # Считаем дни просрочки для каждой записи
+        def _at_days_overdue(r):
+            try:
+                return (_at_today_d - datetime.strptime(r["date"], "%Y-%m-%d").date()).days
+            except Exception:
+                return 0
+
+        _at_ath_pending  = [r for r in _at_ath if r.get("status") == "message_sent"]
+        _at_ath_done     = [r for r in _at_ath if r.get("status") == "handled"]
+        _at_ath_urgent   = [r for r in _at_ath_pending if _at_days_overdue(r) > 2]
+
+        # ── Метрики ──────────────────────────────────────────────────────────
+        _am1, _am2, _am3, _am4 = st.columns(4)
+        _am1.metric("📨 Всего отправлено",  len(_at_ath))
+        _am2.metric("⏳ Ожидают",           len(_at_ath_pending))
+        _am3.metric("🔴 Просрочено >2 дней", len(_at_ath_urgent))
+        _am4.metric("✅ Проставили",         len(_at_ath_done))
+
+        st.divider()
+
+        # ── Статистика по преподавателям ─────────────────────────────────────
+        with st.expander("📊 Статистика по преподавателям", expanded=False):
+            _at_stat_rows = []
+            _at_all_teachers_stat = sorted({r["teacher"] for r in _at_ath})
+            for _at_st in _at_all_teachers_stat:
+                _at_t_all  = [r for r in _at_ath if r["teacher"] == _at_st]
+                _at_t_pend = [r for r in _at_t_all if r.get("status") == "message_sent"]
+                _at_t_done = [r for r in _at_t_all if r.get("status") == "handled"]
+                _at_t_urg  = [r for r in _at_t_pend if _at_days_overdue(r) > 2]
+                _at_max_days = max((_at_days_overdue(r) for r in _at_t_pend), default=0)
+                _at_stat_rows.append({
+                    "Преподаватель":     _at_st,
+                    "⏳ Ожидает":        len(_at_t_pend),
+                    "🔴 Просрочено":     len(_at_t_urg),
+                    "✅ Проставил":      len(_at_t_done),
+                    "Всего":             len(_at_t_all),
+                    "Макс. дней":        _at_max_days,
+                    "% выполнения":      round(len(_at_t_done) / len(_at_t_all) * 100) if _at_t_all else 0,
+                })
+            # Сортируем: сначала просроченные, потом ожидающие, потом всё хорошо
+            _at_stat_rows.sort(key=lambda r: (-r["🔴 Просрочено"], -r["⏳ Ожидает"]))
+            import pandas as _pd_at
+            _at_df_stat = _pd_at.DataFrame(_at_stat_rows)
+            st.dataframe(
+                _at_df_stat,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Преподаватель":  st.column_config.TextColumn(width="large"),
+                    "⏳ Ожидает":     st.column_config.NumberColumn(width="small"),
+                    "🔴 Просрочено":  st.column_config.NumberColumn(width="small"),
+                    "✅ Проставил":   st.column_config.NumberColumn(width="small"),
+                    "Всего":          st.column_config.NumberColumn(width="small"),
+                    "Макс. дней":     st.column_config.NumberColumn(width="small", help="Макс. дней без посещаемости"),
+                    "% выполнения":   st.column_config.ProgressColumn(
+                        "% выполнения", format="%d%%", min_value=0, max_value=100
+                    ),
+                },
+            )
+
+        st.divider()
+
+        # ── Фильтр ───────────────────────────────────────────────────────────
         _at_ath_status_filter = st.selectbox(
             "Фильтр по статусу",
-            ["Все", "⏳ Ожидает", "✅ Проставлено"],
+            ["Все", "⏳ Ожидает", "🔴 Просрочено >2 дней", "✅ Проставлено"],
             key="at_hist_status_filter",
         )
-        _at_ath_filtered = _at_ath
         if _at_ath_status_filter == "⏳ Ожидает":
-            _at_ath_filtered = [r for r in _at_ath if r.get("status") == "message_sent"]
+            _at_ath_filtered = _at_ath_pending
+        elif _at_ath_status_filter == "🔴 Просрочено >2 дней":
+            _at_ath_filtered = _at_ath_urgent
         elif _at_ath_status_filter == "✅ Проставлено":
-            _at_ath_filtered = [r for r in _at_ath if r.get("status") == "handled"]
+            _at_ath_filtered = _at_ath_done
+        else:
+            _at_ath_filtered = _at_ath
 
+        # ── Группируем по преподавателю ───────────────────────────────────────
         _at_ath_by_t = defaultdict(list)
         for _ar in _at_ath_filtered:
             _at_ath_by_t[_ar["teacher"]].append(_ar)
 
-        for _at_t in sorted(_at_ath_by_t):
-            _at_t_recs = sorted(_at_ath_by_t[_at_t], key=lambda r: r.get("date", ""))
-            _at_t_pend = sum(1 for r in _at_t_recs if r.get("status") == "message_sent")
-            _at_t_icon = "⏳" if _at_t_pend else "✅"
-            with st.expander(f"{_at_t_icon} {_at_t}  —  {len(_at_t_recs)} записей", expanded=(_at_t_pend > 0)):
-                for _at_hr in _at_t_recs:
+        # Сортировка преподавателей: сначала с просроченными, потом ожидающие, потом проставили
+        def _at_teacher_sort_key(t):
+            recs = _at_ath_by_t[t]
+            urg  = sum(1 for r in recs if r.get("status") == "message_sent" and _at_days_overdue(r) > 2)
+            pend = sum(1 for r in recs if r.get("status") == "message_sent")
+            return (-urg, -pend, t)
+
+        for _at_t in sorted(_at_ath_by_t, key=_at_teacher_sort_key):
+            _at_t_recs   = _at_ath_by_t[_at_t]
+            _at_t_pend   = sum(1 for r in _at_t_recs if r.get("status") == "message_sent")
+            _at_t_urg    = sum(1 for r in _at_t_recs if r.get("status") == "message_sent" and _at_days_overdue(r) > 2)
+            _at_t_done   = sum(1 for r in _at_t_recs if r.get("status") == "handled")
+
+            if _at_t_urg:
+                _at_t_icon = "🔴"
+                _at_t_badge = f" 🔴 {_at_t_urg} просрочено"
+            elif _at_t_pend:
+                _at_t_icon = "⏳"
+                _at_t_badge = f" ⏳ {_at_t_pend} ожидает"
+            else:
+                _at_t_icon = "✅"
+                _at_t_badge = f" ✅ всё проставлено"
+
+            with st.expander(
+                f"{_at_t_icon} **{_at_t}**{_at_t_badge}  ·  {len(_at_t_recs)} записей",
+                expanded=(_at_t_pend > 0),
+            ):
+                # Сортируем записи: сначала непроставленные (по дате, старые вверху), потом проставленные
+                _at_t_recs_sorted = sorted(
+                    _at_t_recs,
+                    key=lambda r: (
+                        0 if r.get("status") == "message_sent" else 1,
+                        r.get("date", ""),
+                    ),
+                )
+                for _at_hr in _at_t_recs_sorted:
+                    _at_days = _at_days_overdue(_at_hr)
+                    _at_is_pending  = _at_hr.get("status") == "message_sent"
+                    _at_is_urgent   = _at_is_pending and _at_days > 2
+
                     try:
                         _at_hd = datetime.strptime(_at_hr["date"], "%Y-%m-%d").strftime("%d.%m.%Y")
                     except Exception:
                         _at_hd = _at_hr.get("date", "")
-                    _at_hst = "✅ Проставлено" if _at_hr.get("status") == "handled" else "⏳ Ожидает"
+
                     _at_hstus = ", ".join(_at_hr.get("students", []))
-                    st.markdown(f"**{_at_hd}** — {_at_hst}")
-                    st.caption(f"{_at_hr.get('count', 0)} уч.: {_at_hstus}")
+                    _at_cnt   = _at_hr.get("count", 0)
+
+                    if _at_is_urgent:
+                        _at_status_badge = f'<span style="background:#ef4444;color:white;padding:2px 8px;border-radius:4px;font-size:0.8em">🔴 {_at_days} дн. без ответа</span>'
+                    elif _at_is_pending:
+                        _at_status_badge = f'<span style="background:#f59e0b;color:white;padding:2px 8px;border-radius:4px;font-size:0.8em">⏳ {_at_days} дн.</span>'
+                    else:
+                        _at_status_badge = '<span style="background:#22c55e;color:white;padding:2px 8px;border-radius:4px;font-size:0.8em">✅ Проставлено</span>'
+
+                    with st.container(border=True):
+                        _ah_c1, _ah_c2 = st.columns([3, 1])
+                        with _ah_c1:
+                            st.markdown(
+                                f"**{_at_hd}** &nbsp; {_at_status_badge}",
+                                unsafe_allow_html=True,
+                            )
+                            with st.expander(f"👥 {_at_cnt} учеников", expanded=False):
+                                for _sn in _at_hr.get("students", []):
+                                    st.caption(f"• {_sn}")
+                        with _ah_c2:
+                            if _at_is_urgent:
+                                st.error(f"⚠️ {_at_days} дней")
+                            elif _at_is_pending:
+                                st.warning(f"⏳ {_at_days} дней")
 
 
