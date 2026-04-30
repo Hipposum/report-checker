@@ -189,7 +189,8 @@ class ErrorType(Enum):
 # ─────────────────────────────────────────────────────────────────────────────
 
 CONFIG_FILE   = os.path.join(os.path.dirname(__file__), "config.json")
-HISTORY_FILE  = os.path.join(os.path.dirname(__file__), "history.json")
+HISTORY_FILE             = os.path.join(os.path.dirname(__file__), "history.json")
+ATTENDANCE_HISTORY_FILE  = os.path.join(os.path.dirname(__file__), "attendance_history.json")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -413,6 +414,30 @@ def save_history(records: list):
     if not saved:
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(records, f, ensure_ascii=False, indent=2, default=str)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  ATTENDANCE HISTORY — отдельное хранилище, не смешивается с историей отчётов
+# ─────────────────────────────────────────────────────────────────────────────
+# Запись: {id, teacher, date, students[], count, status, sent_at, checked_at}
+# Статусы: message_sent → handled (проставили) | pending (ещё не проставили)
+
+def load_attendance_history() -> list:
+    """Загружает историю посещаемости из отдельного файла."""
+    if os.path.exists(ATTENDANCE_HISTORY_FILE):
+        try:
+            with open(ATTENDANCE_HISTORY_FILE, encoding="utf-8") as _f:
+                data = json.load(_f)
+                if isinstance(data, list):
+                    return data
+        except Exception:
+            pass
+    return []
+
+def save_attendance_history(records: list):
+    """Сохраняет историю посещаемости в отдельный файл."""
+    with open(ATTENDANCE_HISTORY_FILE, "w", encoding="utf-8") as _f:
+        json.dump(records, _f, ensure_ascii=False, indent=2, default=str)
 
 
 @st.dialog("⚠️ Некорректный отчёт")
@@ -3535,10 +3560,6 @@ with tab8:
                 for _at_e in _at_auto_cancelled:
                     _at_batch.append(_at_make_item(_at_e, True))    # пропуск (уже стоял)
 
-                with st.expander("🛠 Отладка: пример запроса (первая запись)", expanded=False):
-                    if _at_batch:
-                        st.json(_at_batch[0])
-
                 _at_api_responses = []
                 with st.spinner(f"Отправляем {len(_at_batch)} записей в HolliHop…"):
                     _at_url = f"{BASE_URL}/SetStudentPasses"
@@ -3563,10 +3584,6 @@ with tab8:
                             _at_err += len(_at_chunk)
                             _at_errs.append(str(_at_ex))
                             _at_api_responses.append(f"Пакет {_i//100+1}: Exception — {_at_ex}")
-
-                with st.expander("🛠 Ответ сервера HolliHop", expanded=True):
-                    for _at_ar in _at_api_responses:
-                        st.code(_at_ar)
 
                 if _at_err == 0:
                     st.success(f"✅ Запрос принят для **{_at_ok}** учеников — проверь HolliHop через минуту")
@@ -3643,6 +3660,7 @@ with tab8:
                     with st.spinner("Загружаю пользователей Пачки…"):
                         _at_pachca.load_users()
                     _at_sent, _at_not_found = [], []
+                    _at_new_hist_entries = []   # накапливаем для истории
                     for _at_ut in sorted(_at_un_by_t):
                         _at_details_lines = []
                         for _at_ud in sorted(_at_un_by_t[_at_ut]):
@@ -3660,130 +3678,159 @@ with tab8:
                         try:
                             _at_pachca.send_dm(_at_user["id"], _at_msg)
                             _at_sent.append(_at_ut)
+                            # Собираем записи для истории — одна на каждую дату этого преподавателя
+                            for _at_ud in sorted(_at_un_by_t[_at_ut]):
+                                _at_new_hist_entries.append({
+                                    "teacher":  _at_ut,
+                                    "date":     _at_ud,
+                                    "students": list(_at_un_by_t[_at_ut][_at_ud]),
+                                })
                         except Exception as _at_ex:
                             _at_not_found.append(f"{_at_ut} (ошибка: {_at_ex})")
                     if _at_sent:
                         st.success(f"✅ Отправлено: {', '.join(_at_sent)}")
+                        # ── Сохраняем в отдельную историю посещаемости ─────────
+                        if _at_new_hist_entries:
+                            import uuid as _uuid
+                            _at_hist_now = datetime.now().isoformat(timespec="seconds")
+                            _at_all_hist = load_attendance_history()
+                            # Индекс по (teacher, date) для дедупликации
+                            _at_hist_idx = {
+                                (r["teacher"], r["date"]): i
+                                for i, r in enumerate(_at_all_hist)
+                            }
+                            for _at_he in _at_new_hist_entries:
+                                _at_hkey = (_at_he["teacher"], _at_he["date"])
+                                if _at_hkey in _at_hist_idx:
+                                    _at_hr = _at_all_hist[_at_hist_idx[_at_hkey]]
+                                    _at_hr["status"]     = "message_sent"
+                                    _at_hr["students"]   = _at_he["students"]
+                                    _at_hr["count"]      = len(_at_he["students"])
+                                    _at_hr["checked_at"] = _at_hist_now
+                                else:
+                                    _at_all_hist.append({
+                                        "id":         str(_uuid.uuid4())[:8],
+                                        "teacher":    _at_he["teacher"],
+                                        "date":       _at_he["date"],
+                                        "students":   _at_he["students"],
+                                        "count":      len(_at_he["students"]),
+                                        "status":     "message_sent",
+                                        "sent_at":    _at_hist_now,
+                                        "checked_at": None,
+                                    })
+                            save_attendance_history(_at_all_hist)
+                            st.info(f"📋 Сохранено в историю посещаемости: {len(_at_new_hist_entries)} записей")
                     if _at_not_found:
                         st.warning(f"⚠️ Не найдены в Пачке: {', '.join(_at_not_found)}")
 
-        # ── Исправить ошибочно выставленные пропуски ────────────────────────
-        st.markdown("---")
-        st.markdown("### 🔧 Исправить ошибочные пропуски")
-        st.caption("Ищет тех, кому стоит pass=true (пропуск), но при этом есть отчёт → исправляет на pass=false (присутствовал)")
+    # ── Проверить кто проставил ─────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("#### 🔄 Проверить кто проставил посещаемость")
+    st.caption("Загружает актуальные данные HolliHop и обновляет статусы в истории.")
 
-        if st.button("🔍 Найти ошибочные пропуски", key="at_fix_find"):
-            _at_ff_str = _at_date_from.strftime("%Y-%m-%d")
-            _at_ft_str = _at_date_to.strftime("%Y-%m-%d")
-            with st.spinner("Загружаю данные…"):
-                _at_fix_eus = api_paginated(BASE_URL, api_key, "GetEdUnitStudents", "EdUnitStudents", params={
-                    "dateFrom": _at_ff_str, "dateTo": _at_ft_str, "queryDays": "true",
-                })
-                _at_fix_ed_units = api_paginated(BASE_URL, api_key, "GetEdUnits", "EdUnits", params={
-                    "types": "Group,MiniGroup,Individual",
-                    "dateFrom": _at_ff_str, "dateTo": _at_ft_str, "queryDays": "true",
-                })
-                _at_fix_eu_map = {}
-                for _at_feu in _at_fix_ed_units:
-                    _at_feu_id, _at_ft_names = _at_feu["Id"], []
-                    for _at_fsi in _at_feu.get("ScheduleItems", []):
-                        for _at_ftn in _at_fsi.get("Teachers", []):
-                            if _at_ftn not in _at_ft_names:
-                                _at_ft_names.append(_at_ftn)
-                    _at_fix_eu_map[_at_feu_id] = {
-                        "name": _at_feu.get("Name", ""),
-                        "teachers": _at_ft_names,
-                    }
-                _at_fix_results = load_test_results(BASE_URL, api_key, _at_ff_str, _at_ft_str)
-            _at_fix_has_report = {
-                (r.get("EdUnitId"), r.get("StudentClientId"), r.get("Date"))
-                for r in _at_fix_results
-            }
-            # Ищем: Pass=True (пропуск) И есть отчёт → ошибка
-            _at_fix_list = []
-            for _at_frec in _at_fix_eus:
-                _at_feu_id    = _at_frec.get("EdUnitId") or _at_frec.get("Id")
-                _at_fclient   = _at_frec.get("StudentClientId")
-                _at_fsname    = _at_frec.get("StudentName") or "—"
-                _at_fgroup    = _at_frec.get("EdUnitName") or _at_fix_eu_map.get(_at_feu_id, {}).get("name", "")
-                _at_fteachers = _at_fix_eu_map.get(_at_feu_id, {}).get("teachers", [])
-                for _at_fday in _at_frec.get("Days", []):
-                    _at_fd = _at_fday.get("Date", "")
-                    if not _at_fd or _at_fd < _at_ff_str or _at_fd > _at_ft_str:
-                        continue
-                    if _at_fday.get("Pass") is True and (_at_feu_id, _at_fclient, _at_fd) in _at_fix_has_report:
-                        _at_fix_list.append({
-                            "edUnitId":        _at_feu_id,
-                            "studentClientId": _at_fclient,
-                            "date":            _at_fd,
-                            "student":         _at_fsname,
-                            "group":           _at_fgroup,
-                            "teachers":        _at_fteachers,
-                            "existing_desc":   (_at_fday.get("Description") or "").strip(),
-                            "minutes":         _at_fday.get("Minutes"),
-                        })
-            st.session_state["at_fix_list"] = _at_fix_list
+    if st.button("🔄 Проверить кто проставил", key="at_check_handled"):
+        _at_chk_ff = _at_date_from.strftime("%Y-%m-%d")
+        _at_chk_ft = _at_date_to.strftime("%Y-%m-%d")
+        with st.spinner("Загружаю данные посещаемости…"):
+            _at_chk_eus = api_paginated(BASE_URL, api_key, "GetEdUnitStudents", "EdUnitStudents", params={
+                "dateFrom": _at_chk_ff, "dateTo": _at_chk_ft, "queryDays": "true",
+            })
+        _at_chk_accepted_pairs: set = set()
+        for _at_chk_rec in _at_chk_eus:
+            _at_chk_sname = _at_chk_rec.get("StudentName", "")
+            for _at_chk_day in _at_chk_rec.get("Days", []):
+                if _at_chk_day.get("Accepted"):
+                    _at_chk_d = (_at_chk_day.get("Date") or "")[:10]
+                    _at_chk_accepted_pairs.add((_at_chk_sname, _at_chk_d))
 
-        _at_fix_list = st.session_state.get("at_fix_list")
-        if _at_fix_list is not None:
-            if not _at_fix_list:
-                st.success("✅ Ошибочных пропусков не найдено!")
+        _at_chk_hist = load_attendance_history()
+        _at_chk_now  = datetime.now().isoformat(timespec="seconds")
+        _at_chk_handled_n = 0
+        _at_chk_pending_n = 0
+        _at_chk_rows = []
+        for _at_chk_hr in _at_chk_hist:
+            if _at_chk_hr.get("status") not in ("message_sent", "open"):
+                continue
+            _at_chk_date  = _at_chk_hr.get("date", "")
+            _at_chk_stus  = _at_chk_hr.get("students", [])
+            _at_stus_ok   = [s for s in _at_chk_stus if (s, _at_chk_date) in _at_chk_accepted_pairs]
+            _at_stus_miss = [s for s in _at_chk_stus if (s, _at_chk_date) not in _at_chk_accepted_pairs]
+            try:
+                _at_chk_dfmt = datetime.strptime(_at_chk_date, "%Y-%m-%d").strftime("%d.%m.%Y")
+            except Exception:
+                _at_chk_dfmt = _at_chk_date
+            if _at_stus_miss:
+                _at_chk_pending_n += 1
+                _at_chk_rows.append({
+                    "Преподаватель": _at_chk_hr.get("teacher", ""),
+                    "Дата": _at_chk_dfmt,
+                    "Проставили": ", ".join(_at_stus_ok) if _at_stus_ok else "—",
+                    "Не проставили": ", ".join(_at_stus_miss),
+                    "Статус": "⏳ Ожидает",
+                })
             else:
-                st.error(f"⚠️ Найдено **{len(_at_fix_list)}** ошибочных пропусков — у людей с отчётом стоит пропуск")
-                # Показываем список
-                _at_fix_by_t = defaultdict(list)
-                for _at_fr in _at_fix_list:
-                    for _at_ft in (_at_fr["teachers"] or ["—"]):
-                        _at_fix_by_t[_at_ft].append(_at_fr)
-                for _at_ft in sorted(_at_fix_by_t):
-                    with st.expander(f"👤 {_at_ft}  —  {len(_at_fix_by_t[_at_ft])} чел.", expanded=True):
-                        for _at_fr in _at_fix_by_t[_at_ft]:
-                            try:
-                                _at_fd_fmt = datetime.strptime(_at_fr["date"], "%Y-%m-%d").strftime("%d.%m.%Y")
-                            except Exception:
-                                _at_fd_fmt = _at_fr["date"]
-                            _at_fg = f" · _{_at_fr['group']}_" if _at_fr["group"] else ""
-                            st.markdown(f"- **{_at_fd_fmt}** {_at_fr['student']}{_at_fg}")
+                _at_chk_hr["status"]     = "handled"
+                _at_chk_hr["checked_at"] = _at_chk_now
+                _at_chk_handled_n += 1
+                _at_chk_rows.append({
+                    "Преподаватель": _at_chk_hr.get("teacher", ""),
+                    "Дата": _at_chk_dfmt,
+                    "Проставили": ", ".join(_at_stus_ok) if _at_stus_ok else "—",
+                    "Не проставили": "—",
+                    "Статус": "✅ Готово",
+                })
+        save_attendance_history(_at_chk_hist)
+        if _at_chk_handled_n:
+            st.success(f"✅ Посещаемость проставлена у {_at_chk_handled_n} записей → статус «Проставлено»")
+        if _at_chk_pending_n:
+            st.warning(f"⏳ Ещё ожидают: {_at_chk_pending_n} записей")
+        if _at_chk_rows:
+            import pandas as _pd_chk
+            st.dataframe(_pd_chk.DataFrame(_at_chk_rows), use_container_width=True, hide_index=True)
+        elif not _at_chk_handled_n and not _at_chk_pending_n:
+            st.info("В истории посещаемости нет записей.")
 
-                if st.button(
-                    f"✅ Исправить — пометить всех {len(_at_fix_list)} как присутствовал (pass=false)",
-                    type="primary",
-                    key="at_fix_apply",
-                ):
-                    _at_fix_batch = []
-                    for _at_fr in _at_fix_list:
-                        _at_fix_item = {
-                            "edUnitId":        _at_fr["edUnitId"],
-                            "studentClientId": _at_fr["studentClientId"],
-                            "date":            _at_fr["date"],
-                            "pass":            False,
-                            "description":     _at_fr["existing_desc"],
-                        }
-                        if _at_fr.get("minutes") is not None:
-                            _at_fix_item["minutes"] = _at_fr["minutes"]
-                        _at_fix_batch.append(_at_fix_item)
+    # ── История посещаемости ─────────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("### 📋 История отправленных сообщений о посещаемости")
+    _at_ath = load_attendance_history()
+    if not _at_ath:
+        st.info("Пока нет записей.")
+    else:
+        _at_ath_pending = sum(1 for r in _at_ath if r.get("status") == "message_sent")
+        _at_ath_done    = sum(1 for r in _at_ath if r.get("status") == "handled")
+        _c1, _c2 = st.columns(2)
+        _c1.metric("⏳ Ожидают", _at_ath_pending)
+        _c2.metric("✅ Проставили", _at_ath_done)
 
-                    _at_fix_ok, _at_fix_err = 0, 0
-                    with st.spinner("Исправляю…"):
-                        _at_fix_url = f"{BASE_URL}/SetStudentPasses"
-                        for _i in range(0, len(_at_fix_batch), 100):
-                            _at_fc = _at_fix_batch[_i:_i + 100]
-                            try:
-                                _at_fr2 = requests.post(
-                                    _at_fix_url,
-                                    params={"authkey": api_key},
-                                    json=_at_fc,
-                                    timeout=60,
-                                )
-                                if _at_fr2.status_code in (200, 204):
-                                    _at_fix_ok += len(_at_fc)
-                                else:
-                                    _at_fix_err += len(_at_fc)
-                            except Exception:
-                                _at_fix_err += len(_at_fc)
-                    if _at_fix_err == 0:
-                        st.success(f"✅ Исправлено {_at_fix_ok} записей!")
-                        st.session_state["at_fix_list"] = []
-                    else:
-                        st.warning(f"Исправлено: {_at_fix_ok} ✅ / {_at_fix_err} ❌")
+        _at_ath_status_filter = st.selectbox(
+            "Фильтр по статусу",
+            ["Все", "⏳ Ожидает", "✅ Проставлено"],
+            key="at_hist_status_filter",
+        )
+        _at_ath_filtered = _at_ath
+        if _at_ath_status_filter == "⏳ Ожидает":
+            _at_ath_filtered = [r for r in _at_ath if r.get("status") == "message_sent"]
+        elif _at_ath_status_filter == "✅ Проставлено":
+            _at_ath_filtered = [r for r in _at_ath if r.get("status") == "handled"]
+
+        _at_ath_by_t = defaultdict(list)
+        for _ar in _at_ath_filtered:
+            _at_ath_by_t[_ar["teacher"]].append(_ar)
+
+        for _at_t in sorted(_at_ath_by_t):
+            _at_t_recs = sorted(_at_ath_by_t[_at_t], key=lambda r: r.get("date", ""))
+            _at_t_pend = sum(1 for r in _at_t_recs if r.get("status") == "message_sent")
+            _at_t_icon = "⏳" if _at_t_pend else "✅"
+            with st.expander(f"{_at_t_icon} {_at_t}  —  {len(_at_t_recs)} записей", expanded=(_at_t_pend > 0)):
+                for _at_hr in _at_t_recs:
+                    try:
+                        _at_hd = datetime.strptime(_at_hr["date"], "%Y-%m-%d").strftime("%d.%m.%Y")
+                    except Exception:
+                        _at_hd = _at_hr.get("date", "")
+                    _at_hst = "✅ Проставлено" if _at_hr.get("status") == "handled" else "⏳ Ожидает"
+                    _at_hstus = ", ".join(_at_hr.get("students", []))
+                    st.markdown(f"**{_at_hd}** — {_at_hst}")
+                    st.caption(f"{_at_hr.get('count', 0)} уч.: {_at_hstus}")
+
 
