@@ -1301,7 +1301,7 @@ with _gear_col:
         short_comment_threshold = st.number_input(
             "Порог «короткого» отчёта (символов)",
             min_value=50, max_value=2000,
-            value=int(cfg.get("short_comment_threshold", 400)),
+            value=int(cfg.get("short_comment_threshold", 100)),
             step=50, key="cfg_short_threshold",
             help="Отчёты короче этого значения помечаются 🟡",
         )
@@ -3271,7 +3271,7 @@ with tab6:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _rp_quality(comment: str, grade: str, threshold: int = 400):
+def _rp_quality(comment: str, grade: str, threshold: int = 100):
     """Return (icon, label, css_color) quality indicator."""
     if not comment:
         return "🔴", "Нет комментария", "#f87171"
@@ -3281,7 +3281,7 @@ def _rp_quality(comment: str, grade: str, threshold: int = 400):
 
 with tab7:
     st.subheader("📑 Отчёты преподавателей")
-    _rp_threshold = int(st.session_state.get("cfg_short_threshold", cfg.get("short_comment_threshold", 400)))
+    _rp_threshold = int(st.session_state.get("cfg_short_threshold", cfg.get("short_comment_threshold", 100)))
 
     _rp_c1, _rp_c2, _rp_c3 = st.columns([2, 2, 1])
     _rp_date_from = _rp_c1.date_input("Период с", value=date.today() - timedelta(days=7), key="rp_date_from")
