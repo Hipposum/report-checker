@@ -1556,7 +1556,7 @@ supabase_key = "eyJ..."
 
 BASE_URL  = f"https://{subdomain}.t8s.ru/Api/V2"
 
-tab4, tab5, tab1, tab2, tab3, tab6, tab7, tab8 = st.tabs(["📚 История", "📊 Статистика", "📥 Загрузить данные", "✉️ Сообщения", "📤 Отправить", "📢 Рассылка", "📑 Отчёты", "📅 Посещаемость"])
+tab4, tab5, tab1, tab2, tab3, tab6, tab7, tab8, tab9 = st.tabs(["📚 История", "📊 Статистика", "📥 Загрузить данные", "✉️ Сообщения", "📤 Отправить", "📢 Рассылка", "📑 Отчёты", "📅 Посещаемость", "📈 Стат. посещаемости"])
 
 
 # Load history once per render — reused across Tab 4 and Tab 5
@@ -3835,180 +3835,228 @@ with tab8:
                     if _at_not_found:
                         st.warning(f"⚠️ Не найдены в Пачке: {', '.join(_at_not_found)}")
 
-    # ── Проверить кто проставил ─────────────────────────────────────────────
-    st.markdown("---")
-    st.markdown("#### 🔄 Проверить кто проставил посещаемость")
-    st.caption("Загружает актуальные данные HolliHop и обновляет статусы в истории.")
+    # ── Подсказка → статистика в отдельном табе ──────────────────────────────
+    _at9_ath_quick = load_attendance_history()
+    if _at9_ath_quick:
+        _at9_q_pend = sum(1 for r in _at9_ath_quick if r.get("status") == "message_sent")
+        _at9_q_done = sum(1 for r in _at9_ath_quick if r.get("status") == "handled")
+        _at9_q_tot  = len(_at9_ath_quick)
+        st.markdown("---")
+        st.info(
+            f"📈 **История и статистика** — смотри вкладку «Стат. посещаемости»  \n"
+            f"Всего сессий: **{_at9_q_tot}** · Ожидают: **{_at9_q_pend}** · Проставили: **{_at9_q_done}**"
+        )
 
-    if st.button("🔄 Проверить кто проставил", key="at_check_handled"):
-        _at_chk_ff = _at_date_from.strftime("%Y-%m-%d")
-        _at_chk_ft = _at_date_to.strftime("%Y-%m-%d")
-        with st.spinner("Загружаю данные посещаемости…"):
-            _at_chk_eus = api_paginated(BASE_URL, api_key, "GetEdUnitStudents", "EdUnitStudents", params={
-                "dateFrom": _at_chk_ff, "dateTo": _at_chk_ft, "queryDays": "true",
-            })
-        _at_chk_accepted_pairs: set = set()
-        for _at_chk_rec in _at_chk_eus:
-            _at_chk_sname = _at_chk_rec.get("StudentName", "")
-            for _at_chk_day in _at_chk_rec.get("Days", []):
-                if _at_chk_day.get("Accepted"):
-                    _at_chk_d = (_at_chk_day.get("Date") or "")[:10]
-                    _at_chk_accepted_pairs.add((_at_chk_sname, _at_chk_d))
 
-        _at_chk_hist = load_attendance_history()
-        _at_chk_now  = datetime.now().isoformat(timespec="seconds")
-        _at_chk_handled_n = 0
-        _at_chk_pending_n = 0
-        _at_chk_rows = []
-        for _at_chk_hr in _at_chk_hist:
-            if _at_chk_hr.get("status") not in ("message_sent", "open"):
-                continue
-            _at_chk_date  = _at_chk_hr.get("date", "")
-            _at_chk_stus  = _at_chk_hr.get("students", [])
-            _at_stus_ok   = [s for s in _at_chk_stus if (s, _at_chk_date) in _at_chk_accepted_pairs]
-            _at_stus_miss = [s for s in _at_chk_stus if (s, _at_chk_date) not in _at_chk_accepted_pairs]
-            try:
-                _at_chk_dfmt = datetime.strptime(_at_chk_date, "%Y-%m-%d").strftime("%d.%m.%Y")
-            except Exception:
-                _at_chk_dfmt = _at_chk_date
-            if _at_stus_miss:
-                _at_chk_pending_n += 1
-                _at_chk_rows.append({
-                    "Преподаватель": _at_chk_hr.get("teacher", ""),
-                    "Дата": _at_chk_dfmt,
-                    "Проставили": ", ".join(_at_stus_ok) if _at_stus_ok else "—",
-                    "Не проставили": ", ".join(_at_stus_miss),
-                    "Статус": "⏳ Ожидает",
-                })
-            else:
-                _at_chk_hr["status"]     = "handled"
-                _at_chk_hr["checked_at"] = _at_chk_now
-                _at_chk_handled_n += 1
-                _at_chk_rows.append({
-                    "Преподаватель": _at_chk_hr.get("teacher", ""),
-                    "Дата": _at_chk_dfmt,
-                    "Проставили": ", ".join(_at_stus_ok) if _at_stus_ok else "—",
-                    "Не проставили": "—",
-                    "Статус": "✅ Готово",
-                })
-        save_attendance_history(_at_chk_hist)
-        if _at_chk_handled_n:
-            st.success(f"✅ Посещаемость проставлена у {_at_chk_handled_n} записей → статус «Проставлено»")
-        if _at_chk_pending_n:
-            st.warning(f"⏳ Ещё ожидают: {_at_chk_pending_n} записей")
-        if _at_chk_rows:
-            import pandas as _pd_chk
-            st.dataframe(_pd_chk.DataFrame(_at_chk_rows), use_container_width=True, hide_index=True)
-        elif not _at_chk_handled_n and not _at_chk_pending_n:
-            st.info("В истории посещаемости нет записей.")
+# ── Tab 9: Статистика посещаемости ────────────────────────────────────────
+with tab9:
+    _at9_hdr_col, _at9_ref_col = st.columns([5, 1])
+    _at9_hdr_col.subheader("📈 Статистика посещаемости")
+    if _at9_ref_col.button("🔄 Обновить", key="at9_refresh", use_container_width=True):
+        st.rerun()
 
-    # ── История посещаемости ─────────────────────────────────────────────────
-    st.markdown("---")
-    st.markdown("### 📋 История отправленных сообщений о посещаемости")
-    _at_ath = load_attendance_history()
-    if not _at_ath:
-        st.info("Пока нет записей.")
+    _at9_ath = load_attendance_history()
+
+    if not _at9_ath:
+        st.info("История пуста — отправьте сообщения о посещаемости для получения статистики.")
     else:
-        _at_today_d = date.today()
+        _at9_today_d = date.today()
 
-        # Считаем дни просрочки для каждой записи
-        def _at_days_overdue(r):
+        def _at9_days_overdue(r):
             try:
-                return (_at_today_d - datetime.strptime(r["date"], "%Y-%m-%d").date()).days
+                return (_at9_today_d - datetime.strptime(r["date"], "%Y-%m-%d").date()).days
             except Exception:
                 return 0
 
-        _at_ath_pending  = [r for r in _at_ath if r.get("status") == "message_sent"]
-        _at_ath_done     = [r for r in _at_ath if r.get("status") == "handled"]
-        _at_ath_urgent   = [r for r in _at_ath_pending if _at_days_overdue(r) > 2]
+        _at9_pending        = [r for r in _at9_ath if r.get("status") == "message_sent"]
+        _at9_done           = [r for r in _at9_ath if r.get("status") == "handled"]
+        _at9_urgent         = [r for r in _at9_pending if _at9_days_overdue(r) > 2]
+        _at9_teachers_all   = sorted({r["teacher"] for r in _at9_ath})
+        _at9_teachers_pend  = {r["teacher"] for r in _at9_pending}
+        _at9_teachers_urg   = {r["teacher"] for r in _at9_urgent}
+        _at9_max_days       = max((_at9_days_overdue(r) for r in _at9_pending), default=0)
+        _at9_total_students = sum(r.get("count", 0) for r in _at9_ath)
+        _at9_pct_done       = round(len(_at9_done) / len(_at9_ath) * 100) if _at9_ath else 0
 
-        # ── Метрики ──────────────────────────────────────────────────────────
-        _am1, _am2, _am3, _am4 = st.columns(4)
-        _am1.metric("📨 Всего отправлено",  len(_at_ath))
-        _am2.metric("⏳ Ожидают",           len(_at_ath_pending))
-        _am3.metric("🔴 Просрочено >2 дней", len(_at_ath_urgent))
-        _am4.metric("✅ Проставили",         len(_at_ath_done))
+        # ── Сводные данные ────────────────────────────────────────────────────
+        st.markdown("#### 📋 Сводные данные")
+        _s1, _s2, _s3, _s4 = st.columns(4)
+        _s1.metric("📨 Сессий отправлено",      len(_at9_ath))
+        _s2.metric("👤 Преподавателей охвачено", len(_at9_teachers_all))
+        _s3.metric("👥 Учеников вовлечено",      _at9_total_students)
+        _s4.metric("✅ Выполнено",               f"{_at9_pct_done}%",
+                   help=f"{len(_at9_done)} из {len(_at9_ath)} сессий проставлено")
+
+        _s5, _s6, _s7, _s8 = st.columns(4)
+        _s5.metric("⏳ Сессий ожидают",          len(_at9_pending))
+        _s6.metric("⏳ Преподавателей ждут",     len(_at9_teachers_pend))
+        _s7.metric("🔴 Просрочено >2 дней",      len(_at9_urgent),
+                   help=f"Преподавателей с просрочкой: {len(_at9_teachers_urg)}")
+        _s8.metric("📅 Макс. дней без ответа",   _at9_max_days)
 
         st.divider()
 
-        # ── Статистика по преподавателям ─────────────────────────────────────
-        with st.expander("📊 Статистика по преподавателям", expanded=False):
-            _at_stat_rows = []
-            _at_all_teachers_stat = sorted({r["teacher"] for r in _at_ath})
-            for _at_st in _at_all_teachers_stat:
-                _at_t_all  = [r for r in _at_ath if r["teacher"] == _at_st]
-                _at_t_pend = [r for r in _at_t_all if r.get("status") == "message_sent"]
-                _at_t_done = [r for r in _at_t_all if r.get("status") == "handled"]
-                _at_t_urg  = [r for r in _at_t_pend if _at_days_overdue(r) > 2]
-                _at_max_days = max((_at_days_overdue(r) for r in _at_t_pend), default=0)
-                _at_stat_rows.append({
-                    "Преподаватель":     _at_st,
-                    "⏳ Ожидает":        len(_at_t_pend),
-                    "🔴 Просрочено":     len(_at_t_urg),
-                    "✅ Проставил":      len(_at_t_done),
-                    "Всего":             len(_at_t_all),
-                    "Макс. дней":        _at_max_days,
-                    "% выполнения":      round(len(_at_t_done) / len(_at_t_all) * 100) if _at_t_all else 0,
+        # ── Проверить кто проставил ───────────────────────────────────────────
+        st.markdown("#### 🔄 Проверить кто проставил посещаемость")
+        st.caption("Загружает актуальные данные HolliHop и обновляет статусы в истории.")
+        _at9_c1, _at9_c2, _at9_c3 = st.columns([1.5, 1.5, 2])
+        _at9_chk_from = _at9_c1.date_input(
+            "С", value=st.session_state.get("at_date_from", _at9_today_d - timedelta(days=7)),
+            key="at9_chk_from",
+        )
+        _at9_chk_to = _at9_c2.date_input(
+            "По", value=st.session_state.get("at_date_to", _at9_today_d),
+            key="at9_chk_to",
+        )
+        _at9_c3.markdown('<div style="height:1.75rem"></div>', unsafe_allow_html=True)
+        _at9_check_btn = _at9_c3.button(
+            "🔄 Проверить кто проставил",
+            key="at_check_handled",
+            type="primary",
+            use_container_width=True,
+        )
+
+        if _at9_check_btn:
+            _at9_ff = _at9_chk_from.strftime("%Y-%m-%d")
+            _at9_ft = _at9_chk_to.strftime("%Y-%m-%d")
+            with st.spinner("Загружаю данные посещаемости…"):
+                _at9_chk_eus = api_paginated(BASE_URL, api_key, "GetEdUnitStudents", "EdUnitStudents", params={
+                    "dateFrom": _at9_ff, "dateTo": _at9_ft, "queryDays": "true",
                 })
-            # Сортируем: сначала просроченные, потом ожидающие, потом всё хорошо
-            _at_stat_rows.sort(key=lambda r: (-r["🔴 Просрочено"], -r["⏳ Ожидает"]))
-            import pandas as _pd_at
-            _at_df_stat = _pd_at.DataFrame(_at_stat_rows)
+            _at9_accepted_pairs: set = set()
+            for _at9_cr in _at9_chk_eus:
+                _at9_csname = _at9_cr.get("StudentName", "")
+                for _at9_cd in _at9_cr.get("Days", []):
+                    if _at9_cd.get("Accepted"):
+                        _at9_cdate = (_at9_cd.get("Date") or "")[:10]
+                        _at9_accepted_pairs.add((_at9_csname, _at9_cdate))
+
+            _at9_chk_hist = load_attendance_history()
+            _at9_chk_now  = datetime.now().isoformat(timespec="seconds")
+            _at9_handled_n, _at9_pending_n = 0, 0
+            _at9_chk_rows = []
+            for _at9_chr in _at9_chk_hist:
+                if _at9_chr.get("status") not in ("message_sent", "open"):
+                    continue
+                _at9_cdate  = _at9_chr.get("date", "")
+                _at9_cstus  = _at9_chr.get("students", [])
+                _at9_ok     = [s for s in _at9_cstus if (s, _at9_cdate) in _at9_accepted_pairs]
+                _at9_miss   = [s for s in _at9_cstus if (s, _at9_cdate) not in _at9_accepted_pairs]
+                try:
+                    _at9_cdfmt = datetime.strptime(_at9_cdate, "%Y-%m-%d").strftime("%d.%m.%Y")
+                except Exception:
+                    _at9_cdfmt = _at9_cdate
+                if _at9_miss:
+                    _at9_pending_n += 1
+                    _at9_chk_rows.append({
+                        "Преподаватель":  _at9_chr.get("teacher", ""),
+                        "Дата":           _at9_cdfmt,
+                        "Проставили":     ", ".join(_at9_ok) if _at9_ok else "—",
+                        "Не проставили":  ", ".join(_at9_miss),
+                        "Статус":         "⏳ Ожидает",
+                    })
+                else:
+                    _at9_chr["status"]     = "handled"
+                    _at9_chr["checked_at"] = _at9_chk_now
+                    _at9_handled_n += 1
+                    _at9_chk_rows.append({
+                        "Преподаватель":  _at9_chr.get("teacher", ""),
+                        "Дата":           _at9_cdfmt,
+                        "Проставили":     ", ".join(_at9_ok) if _at9_ok else "—",
+                        "Не проставили":  "—",
+                        "Статус":         "✅ Готово",
+                    })
+            save_attendance_history(_at9_chk_hist)
+            if _at9_handled_n:
+                st.success(f"✅ Проставлено у {_at9_handled_n} записей → статус «Проставлено»")
+            if _at9_pending_n:
+                st.warning(f"⏳ Ещё ожидают: {_at9_pending_n} записей")
+            if _at9_chk_rows:
+                import pandas as _pd9_chk
+                st.dataframe(_pd9_chk.DataFrame(_at9_chk_rows), use_container_width=True, hide_index=True)
+            elif not _at9_handled_n and not _at9_pending_n:
+                st.info("В истории посещаемости нет записей со статусом «ожидает».")
+            # Перезагружаем после проверки
+            _at9_ath     = load_attendance_history()
+            _at9_pending = [r for r in _at9_ath if r.get("status") == "message_sent"]
+            _at9_done    = [r for r in _at9_ath if r.get("status") == "handled"]
+            _at9_urgent  = [r for r in _at9_pending if _at9_days_overdue(r) > 2]
+
+        st.divider()
+
+        # ── Статистика по преподавателям ──────────────────────────────────────
+        with st.expander("📊 Статистика по преподавателям", expanded=True):
+            import pandas as _pd9_t
+            _at9_stat_rows = []
+            for _at9_st in _at9_teachers_all:
+                _at9_t_all  = [r for r in _at9_ath if r["teacher"] == _at9_st]
+                _at9_t_pend = [r for r in _at9_t_all if r.get("status") == "message_sent"]
+                _at9_t_done = [r for r in _at9_t_all if r.get("status") == "handled"]
+                _at9_t_urg  = [r for r in _at9_t_pend if _at9_days_overdue(r) > 2]
+                _at9_t_max  = max((_at9_days_overdue(r) for r in _at9_t_pend), default=0)
+                _at9_stat_rows.append({
+                    "Преподаватель": _at9_st,
+                    "⏳ Ожидает":    len(_at9_t_pend),
+                    "🔴 Просрочено": len(_at9_t_urg),
+                    "✅ Проставил":  len(_at9_t_done),
+                    "Всего":         len(_at9_t_all),
+                    "Макс. дней":    _at9_t_max,
+                    "% выполнения":  round(len(_at9_t_done) / len(_at9_t_all) * 100) if _at9_t_all else 0,
+                })
+            _at9_stat_rows.sort(key=lambda r: (-r["🔴 Просрочено"], -r["⏳ Ожидает"]))
             st.dataframe(
-                _at_df_stat,
+                _pd9_t.DataFrame(_at9_stat_rows),
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "Преподаватель":  st.column_config.TextColumn(width="large"),
-                    "⏳ Ожидает":     st.column_config.NumberColumn(width="small"),
-                    "🔴 Просрочено":  st.column_config.NumberColumn(width="small"),
-                    "✅ Проставил":   st.column_config.NumberColumn(width="small"),
-                    "Всего":          st.column_config.NumberColumn(width="small"),
-                    "Макс. дней":     st.column_config.NumberColumn(width="small", help="Макс. дней без посещаемости"),
-                    "% выполнения":   st.column_config.ProgressColumn(
+                    "Преподаватель": st.column_config.TextColumn(width="large"),
+                    "⏳ Ожидает":    st.column_config.NumberColumn(width="small"),
+                    "🔴 Просрочено": st.column_config.NumberColumn(width="small"),
+                    "✅ Проставил":  st.column_config.NumberColumn(width="small"),
+                    "Всего":         st.column_config.NumberColumn(width="small"),
+                    "Макс. дней":    st.column_config.NumberColumn(width="small",
+                                         help="Макс. дней без посещаемости"),
+                    "% выполнения":  st.column_config.ProgressColumn(
                         "% выполнения", format="%d%%", min_value=0, max_value=100
                     ),
                 },
             )
 
-        # ── Статистика по неделям ─────────────────────────────────────────────
-        with st.expander("📅 Динамика по неделям", expanded=False):
-            import pandas as _pd_at_w
-            # Группируем записи по ISO-неделе урока (поле date)
-            _at_week_map: dict = {}
-            for _wr in _at_ath:
+        # ── Динамика по неделям ───────────────────────────────────────────────
+        with st.expander("📅 Динамика по неделям", expanded=True):
+            import pandas as _pd9_w
+            _at9_week_map: dict = {}
+            for _at9_wr in _at9_ath:
                 try:
-                    _wd = datetime.strptime(_wr["date"], "%Y-%m-%d").date()
+                    _at9_wd = datetime.strptime(_at9_wr["date"], "%Y-%m-%d").date()
                 except Exception:
                     continue
-                # Начало и конец недели
-                _wmon = _wd - timedelta(days=_wd.weekday())
-                _wsun = _wmon + timedelta(days=6)
-                _wkey = _wmon.isoformat()
-                if _wkey not in _at_week_map:
-                    _at_week_map[_wkey] = {
-                        "label": f"{_wmon.strftime('%d.%m')} – {_wsun.strftime('%d.%m.%Y')}",
+                _at9_wmon = _at9_wd - timedelta(days=_at9_wd.weekday())
+                _at9_wsun = _at9_wmon + timedelta(days=6)
+                _at9_wkey = _at9_wmon.isoformat()
+                if _at9_wkey not in _at9_week_map:
+                    _at9_week_map[_at9_wkey] = {
+                        "label":   f"{_at9_wmon.strftime('%d.%m')} – {_at9_wsun.strftime('%d.%m.%Y')}",
                         "records": [],
                     }
-                _at_week_map[_wkey]["records"].append(_wr)
+                _at9_week_map[_at9_wkey]["records"].append(_at9_wr)
 
-            _at_week_rows = []
-            for _wkey in sorted(_at_week_map):
-                _wrecs = _at_week_map[_wkey]["records"]
-                _w_pend = [r for r in _wrecs if r.get("status") == "message_sent"]
-                _w_done = [r for r in _wrecs if r.get("status") == "handled"]
-                _w_urg  = [r for r in _w_pend if _at_days_overdue(r) > 2]
-                _at_week_rows.append({
-                    "Неделя":            _at_week_map[_wkey]["label"],
-                    "📨 Отправлено":     len(_wrecs),
-                    "⏳ Ожидает":        len(_w_pend),
-                    "🔴 Просрочено":     len(_w_urg),
-                    "✅ Проставили":     len(_w_done),
-                    "% выполнения":      round(len(_w_done) / len(_wrecs) * 100) if _wrecs else 0,
+            _at9_week_rows = []
+            for _at9_wk in sorted(_at9_week_map):
+                _at9_wrecs = _at9_week_map[_at9_wk]["records"]
+                _at9_wp    = [r for r in _at9_wrecs if r.get("status") == "message_sent"]
+                _at9_wd2   = [r for r in _at9_wrecs if r.get("status") == "handled"]
+                _at9_wu    = [r for r in _at9_wp if _at9_days_overdue(r) > 2]
+                _at9_week_rows.append({
+                    "Неделя":        _at9_week_map[_at9_wk]["label"],
+                    "📨 Отправлено": len(_at9_wrecs),
+                    "⏳ Ожидает":    len(_at9_wp),
+                    "🔴 Просрочено": len(_at9_wu),
+                    "✅ Проставили": len(_at9_wd2),
+                    "% выполнения":  round(len(_at9_wd2) / len(_at9_wrecs) * 100) if _at9_wrecs else 0,
                 })
-
             st.dataframe(
-                _pd_at_w.DataFrame(_at_week_rows),
+                _pd9_w.DataFrame(_at9_week_rows),
                 use_container_width=True,
                 hide_index=True,
                 column_config={
@@ -4025,191 +4073,166 @@ with tab8:
 
         st.divider()
 
-        # ── Шаблон напоминания ────────────────────────────────────────────────
-        _at_sender_name = cfg.get("reviewer_name", "Артём")
-        _at_reminder_default = (
+        # ── Шаблон напоминания + рассылка ────────────────────────────────────
+        _at9_sender = cfg.get("reviewer_name", "Артём")
+        _at9_tpl_default = (
             "Привет, {first_name}! Всё ещё жду проставления посещаемости за {dates} 🙏\n\n"
             "Для школы это сейчас реально важно, помоги пожалуйста разобраться с этим сегодня.\n\n"
             "Если что-то не получается — напиши, помогу!"
         )
         with st.expander("✏️ Шаблон напоминания", expanded=False):
-            st.caption("`{first_name}` — имя преподавателя, `{dates}` — даты, `{sender}` — твоё имя")
-            _at_reminder_tpl = st.text_area(
-                "Текст",
-                value=_at_reminder_default,
-                height=200,
+            st.caption("`{first_name}` — имя преподавателя · `{dates}` — даты · `{sender}` — твоё имя")
+            _at9_reminder_tpl = st.text_area(
+                "Текст напоминания",
+                value=_at9_tpl_default,
+                height=180,
                 key="at_reminder_tpl",
             )
-        _at_reminder_tpl = st.session_state.get("at_reminder_tpl", _at_reminder_default)
+        _at9_reminder_tpl = st.session_state.get("at_reminder_tpl", _at9_tpl_default)
 
-        # Кнопка — отправить всем просроченным сразу
-        _at_pending_teachers = sorted({
-            r["teacher"] for r in _at_ath_pending
-        })
-        if _at_pending_teachers and pachca_token:
+        _at9_pend_teachers = sorted({r["teacher"] for r in _at9_pending})
+        if _at9_pend_teachers and pachca_token:
             if st.button(
-                f"📨 Отправить напоминание всем ожидающим ({len(_at_pending_teachers)} чел.)",
+                f"📨 Отправить напоминание всем ожидающим ({len(_at9_pend_teachers)} чел.)",
                 key="at_remind_all",
                 type="primary",
             ):
-                _at_rem_pachca = PachcaAPI(pachca_token)
+                _at9_rem = PachcaAPI(pachca_token)
                 with st.spinner("Отправляю напоминания…"):
-                    _at_rem_pachca.load_users()
-                _at_rem_sent, _at_rem_fail = [], []
-                for _at_rt in _at_pending_teachers:
-                    _at_rt_pend_dates = sorted({
-                        r["date"] for r in _at_ath_pending if r["teacher"] == _at_rt
-                    })
-                    _at_rt_dates_fmt = ", ".join(
-                        datetime.strptime(d, "%Y-%m-%d").strftime("%d.%m") for d in _at_rt_pend_dates
+                    _at9_rem.load_users()
+                _at9_sent, _at9_fail = [], []
+                for _at9_rt in _at9_pend_teachers:
+                    _at9_rt_dates = sorted({r["date"] for r in _at9_pending if r["teacher"] == _at9_rt})
+                    _at9_rt_dfmt  = ", ".join(
+                        datetime.strptime(d, "%Y-%m-%d").strftime("%d.%m") for d in _at9_rt_dates
                     )
-                    _at_rt_first = _at_rt.split()[1] if len(_at_rt.split()) > 1 else _at_rt.split()[0]
-                    _at_rt_msg = (
-                        _at_reminder_tpl
-                        .replace("{first_name}", _at_rt_first)
-                        .replace("{dates}", _at_rt_dates_fmt)
-                        .replace("{sender}", _at_sender_name)
+                    _at9_rt_fn  = _at9_rt.split()[1] if len(_at9_rt.split()) > 1 else _at9_rt.split()[0]
+                    _at9_rt_msg = (
+                        _at9_reminder_tpl
+                        .replace("{first_name}", _at9_rt_fn)
+                        .replace("{dates}", _at9_rt_dfmt)
+                        .replace("{sender}", _at9_sender)
                     )
-                    _at_rt_user = _at_rem_pachca.find_user(_at_rt)
-                    if not _at_rt_user:
-                        _at_rem_fail.append(_at_rt)
+                    _at9_rt_user = _at9_rem.find_user(_at9_rt)
+                    if not _at9_rt_user:
+                        _at9_fail.append(_at9_rt)
                         continue
                     try:
-                        _at_rem_pachca.send_dm(_at_rt_user["id"], _at_rt_msg)
-                        _at_rem_sent.append(_at_rt)
-                    except Exception as _re:
-                        _at_rem_fail.append(f"{_at_rt} ({_re})")
-                if _at_rem_sent:
-                    st.success(f"✅ Напоминания отправлены: {', '.join(_at_rem_sent)}")
-                if _at_rem_fail:
-                    st.warning(f"⚠️ Не удалось: {', '.join(_at_rem_fail)}")
+                        _at9_rem.send_dm(_at9_rt_user["id"], _at9_rt_msg)
+                        _at9_sent.append(_at9_rt)
+                    except Exception as _at9_re:
+                        _at9_fail.append(f"{_at9_rt} ({_at9_re})")
+                if _at9_sent:
+                    st.success(f"✅ Напоминания отправлены: {', '.join(_at9_sent)}")
+                if _at9_fail:
+                    st.warning(f"⚠️ Не удалось: {', '.join(_at9_fail)}")
 
         st.divider()
 
-        # ── Фильтр ───────────────────────────────────────────────────────────
-        _at_ath_status_filter = st.selectbox(
+        # ── История: фильтр + карточки преподавателей ────────────────────────
+        st.markdown("#### 📋 История отправленных сообщений")
+        _at9_status_filter = st.selectbox(
             "Фильтр по статусу",
             ["Все", "⏳ Ожидает", "🔴 Просрочено >2 дней", "✅ Проставлено"],
             key="at_hist_status_filter",
         )
-        if _at_ath_status_filter == "⏳ Ожидает":
-            _at_ath_filtered = _at_ath_pending
-        elif _at_ath_status_filter == "🔴 Просрочено >2 дней":
-            _at_ath_filtered = _at_ath_urgent
-        elif _at_ath_status_filter == "✅ Проставлено":
-            _at_ath_filtered = _at_ath_done
+        if _at9_status_filter == "⏳ Ожидает":
+            _at9_filtered = _at9_pending
+        elif _at9_status_filter == "🔴 Просрочено >2 дней":
+            _at9_filtered = _at9_urgent
+        elif _at9_status_filter == "✅ Проставлено":
+            _at9_filtered = _at9_done
         else:
-            _at_ath_filtered = _at_ath
+            _at9_filtered = _at9_ath
 
-        # ── Группируем по преподавателю ───────────────────────────────────────
-        _at_ath_by_t = defaultdict(list)
-        for _ar in _at_ath_filtered:
-            _at_ath_by_t[_ar["teacher"]].append(_ar)
+        _at9_by_t: dict = defaultdict(list)
+        for _at9_r in _at9_filtered:
+            _at9_by_t[_at9_r["teacher"]].append(_at9_r)
 
-        # Сортировка преподавателей: сначала с просроченными, потом ожидающие, потом проставили
-        def _at_teacher_sort_key(t):
-            recs = _at_ath_by_t[t]
-            urg  = sum(1 for r in recs if r.get("status") == "message_sent" and _at_days_overdue(r) > 2)
+        def _at9_teacher_sort(t):
+            recs = _at9_by_t[t]
+            urg  = sum(1 for r in recs if r.get("status") == "message_sent" and _at9_days_overdue(r) > 2)
             pend = sum(1 for r in recs if r.get("status") == "message_sent")
             return (-urg, -pend, t)
 
-        for _at_t in sorted(_at_ath_by_t, key=_at_teacher_sort_key):
-            _at_t_recs   = _at_ath_by_t[_at_t]
-            _at_t_pend   = sum(1 for r in _at_t_recs if r.get("status") == "message_sent")
-            _at_t_urg    = sum(1 for r in _at_t_recs if r.get("status") == "message_sent" and _at_days_overdue(r) > 2)
-            _at_t_done   = sum(1 for r in _at_t_recs if r.get("status") == "handled")
+        for _at9_t in sorted(_at9_by_t, key=_at9_teacher_sort):
+            _at9_t_recs = _at9_by_t[_at9_t]
+            _at9_t_pend = sum(1 for r in _at9_t_recs if r.get("status") == "message_sent")
+            _at9_t_urg  = sum(1 for r in _at9_t_recs if r.get("status") == "message_sent" and _at9_days_overdue(r) > 2)
 
-            if _at_t_urg:
-                _at_t_icon = "🔴"
-                _at_t_badge = f" 🔴 {_at_t_urg} просрочено"
-            elif _at_t_pend:
-                _at_t_icon = "⏳"
-                _at_t_badge = f" ⏳ {_at_t_pend} ожидает"
+            if _at9_t_urg:
+                _at9_t_icon  = "🔴"
+                _at9_t_badge = f" 🔴 {_at9_t_urg} просрочено"
+            elif _at9_t_pend:
+                _at9_t_icon  = "⏳"
+                _at9_t_badge = f" ⏳ {_at9_t_pend} ожидает"
             else:
-                _at_t_icon = "✅"
-                _at_t_badge = f" ✅ всё проставлено"
+                _at9_t_icon  = "✅"
+                _at9_t_badge = " ✅ всё проставлено"
 
             with st.expander(
-                f"{_at_t_icon} **{_at_t}**{_at_t_badge}  ·  {len(_at_t_recs)} записей",
-                expanded=(_at_t_pend > 0),
+                f"{_at9_t_icon} **{_at9_t}**{_at9_t_badge}  ·  {len(_at9_t_recs)} записей",
+                expanded=(_at9_t_pend > 0),
             ):
-                # Кнопка напоминания для конкретного преподавателя (только если есть ожидающие)
-                if _at_t_pend and pachca_token:
-                    _at_t_pend_dates = sorted({
-                        r["date"] for r in _at_t_recs if r.get("status") == "message_sent"
-                    })
-                    _at_t_dates_fmt = ", ".join(
-                        datetime.strptime(d, "%Y-%m-%d").strftime("%d.%m") for d in _at_t_pend_dates
+                if _at9_t_pend and pachca_token:
+                    _at9_t_pdates = sorted({r["date"] for r in _at9_t_recs if r.get("status") == "message_sent"})
+                    _at9_t_dfmt   = ", ".join(
+                        datetime.strptime(d, "%Y-%m-%d").strftime("%d.%m") for d in _at9_t_pdates
                     )
-                    _at_t_first = _at_t.split()[1] if len(_at_t.split()) > 1 else _at_t.split()[0]
-                    _at_t_preview_msg = (
-                        _at_reminder_tpl
-                        .replace("{first_name}", _at_t_first)
-                        .replace("{dates}", _at_t_dates_fmt)
-                        .replace("{sender}", _at_sender_name)
+                    _at9_t_fn   = _at9_t.split()[1] if len(_at9_t.split()) > 1 else _at9_t.split()[0]
+                    _at9_t_prev = (
+                        _at9_reminder_tpl
+                        .replace("{first_name}", _at9_t_fn)
+                        .replace("{dates}", _at9_t_dfmt)
+                        .replace("{sender}", _at9_sender)
                     )
-                    _atr_col1, _atr_col2 = st.columns([1, 3])
-                    if _atr_col1.button(
-                        "📨 Напомнить",
-                        key=f"at_remind_{_at_t}",
-                        use_container_width=True,
-                    ):
-                        _atr_pachca = PachcaAPI(pachca_token)
-                        _atr_pachca.load_users()
-                        _atr_user = _atr_pachca.find_user(_at_t)
-                        if _atr_user:
+                    _at9_rc1, _at9_rc2 = st.columns([1, 3])
+                    if _at9_rc1.button("📨 Напомнить", key=f"at_remind_{_at9_t}", use_container_width=True):
+                        _at9_rp = PachcaAPI(pachca_token)
+                        _at9_rp.load_users()
+                        _at9_ru = _at9_rp.find_user(_at9_t)
+                        if _at9_ru:
                             try:
-                                _atr_pachca.send_dm(_atr_user["id"], _at_t_preview_msg)
+                                _at9_rp.send_dm(_at9_ru["id"], _at9_t_prev)
                                 st.success("✅ Напоминание отправлено")
-                            except Exception as _atre:
-                                st.error(f"Ошибка: {_atre}")
+                            except Exception as _at9_re2:
+                                st.error(f"Ошибка: {_at9_re2}")
                         else:
                             st.warning("Не найден в Пачке")
-                    with _atr_col2.expander("👁 Предпросмотр", expanded=False):
-                        st.code(_at_t_preview_msg, language=None)
+                    with _at9_rc2.expander("👁 Предпросмотр", expanded=False):
+                        st.code(_at9_t_prev, language=None)
                     st.divider()
 
-                # Сортируем записи: сначала непроставленные (по дате, старые вверху), потом проставленные
-                _at_t_recs_sorted = sorted(
-                    _at_t_recs,
-                    key=lambda r: (
-                        0 if r.get("status") == "message_sent" else 1,
-                        r.get("date", ""),
-                    ),
+                _at9_t_sorted = sorted(
+                    _at9_t_recs,
+                    key=lambda r: (0 if r.get("status") == "message_sent" else 1, r.get("date", "")),
                 )
-                for _at_hr in _at_t_recs_sorted:
-                    _at_days = _at_days_overdue(_at_hr)
-                    _at_is_pending  = _at_hr.get("status") == "message_sent"
-                    _at_is_urgent   = _at_is_pending and _at_days > 2
-
+                for _at9_hr in _at9_t_sorted:
+                    _at9_days    = _at9_days_overdue(_at9_hr)
+                    _at9_is_pend = _at9_hr.get("status") == "message_sent"
+                    _at9_is_urg  = _at9_is_pend and _at9_days > 2
                     try:
-                        _at_hd = datetime.strptime(_at_hr["date"], "%Y-%m-%d").strftime("%d.%m.%Y")
+                        _at9_hd = datetime.strptime(_at9_hr["date"], "%Y-%m-%d").strftime("%d.%m.%Y")
                     except Exception:
-                        _at_hd = _at_hr.get("date", "")
+                        _at9_hd = _at9_hr.get("date", "")
+                    _at9_cnt = _at9_hr.get("count", 0)
 
-                    _at_cnt = _at_hr.get("count", 0)
-
-                    if _at_is_urgent:
-                        _at_status_badge = f'<span style="background:#ef4444;color:white;padding:2px 8px;border-radius:4px;font-size:0.8em">🔴 {_at_days} дн. без ответа</span>'
-                    elif _at_is_pending:
-                        _at_status_badge = f'<span style="background:#f59e0b;color:white;padding:2px 8px;border-radius:4px;font-size:0.8em">⏳ {_at_days} дн.</span>'
+                    if _at9_is_urg:
+                        _at9_badge = f'<span style="background:#ef4444;color:white;padding:2px 8px;border-radius:4px;font-size:0.8em">🔴 {_at9_days} дн. без ответа</span>'
+                    elif _at9_is_pend:
+                        _at9_badge = f'<span style="background:#f59e0b;color:white;padding:2px 8px;border-radius:4px;font-size:0.8em">⏳ {_at9_days} дн.</span>'
                     else:
-                        _at_status_badge = '<span style="background:#22c55e;color:white;padding:2px 8px;border-radius:4px;font-size:0.8em">✅ Проставлено</span>'
+                        _at9_badge = '<span style="background:#22c55e;color:white;padding:2px 8px;border-radius:4px;font-size:0.8em">✅ Проставлено</span>'
 
                     with st.container(border=True):
-                        _ah_c1, _ah_c2 = st.columns([3, 1])
-                        with _ah_c1:
-                            st.markdown(
-                                f"**{_at_hd}** &nbsp; {_at_status_badge}",
-                                unsafe_allow_html=True,
-                            )
-                            with st.expander(f"👥 {_at_cnt} учеников", expanded=False):
-                                for _sn in _at_hr.get("students", []):
-                                    st.caption(f"• {_sn}")
-                        with _ah_c2:
-                            if _at_is_urgent:
-                                st.error(f"⚠️ {_at_days} дней")
-                            elif _at_is_pending:
-                                st.warning(f"⏳ {_at_days} дней")
-
-
+                        _at9_ac1, _at9_ac2 = st.columns([3, 1])
+                        with _at9_ac1:
+                            st.markdown(f"**{_at9_hd}** &nbsp; {_at9_badge}", unsafe_allow_html=True)
+                            with st.expander(f"👥 {_at9_cnt} учеников", expanded=False):
+                                for _at9_sn in _at9_hr.get("students", []):
+                                    st.caption(f"• {_at9_sn}")
+                        with _at9_ac2:
+                            if _at9_is_urg:
+                                st.error(f"⚠️ {_at9_days} дней")
+                            elif _at9_is_pend:
+                                st.warning(f"⏳ {_at9_days} дней")
