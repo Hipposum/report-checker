@@ -3844,7 +3844,7 @@ with tab8:
         st.markdown("---")
         st.info(
             f"📈 **История и статистика** — смотри вкладку «Стат. посещаемости»  \n"
-            f"Всего сессий: **{_at9_q_tot}** · Ожидают: **{_at9_q_pend}** · Проставили: **{_at9_q_done}**"
+            f"Уроков с непроставленной посещаемостью: **{_at9_q_tot}** · Не проставлено: **{_at9_q_pend}** · Проставили: **{_at9_q_done}**"
         )
 
 
@@ -3881,14 +3881,14 @@ with tab9:
         # ── Сводные данные ────────────────────────────────────────────────────
         st.markdown("#### 📋 Сводные данные")
         _s1, _s2, _s3, _s4 = st.columns(4)
-        _s1.metric("📨 Сессий отправлено",      len(_at9_ath))
-        _s2.metric("👤 Преподавателей охвачено", len(_at9_teachers_all))
-        _s3.metric("👥 Учеников вовлечено",      _at9_total_students)
-        _s4.metric("✅ Выполнено",               f"{_at9_pct_done}%",
-                   help=f"{len(_at9_done)} из {len(_at9_ath)} сессий проставлено")
+        _s1.metric("📚 Уроков с рассылкой",        len(_at9_ath))
+        _s2.metric("👤 Преподавателей охвачено",  len(_at9_teachers_all))
+        _s3.metric("👥 Учеников вовлечено",       _at9_total_students)
+        _s4.metric("✅ Выполнено",                f"{_at9_pct_done}%",
+                   help=f"{len(_at9_done)} из {len(_at9_ath)} уроков проставлено")
 
         _s5, _s6, _s7, _s8 = st.columns(4)
-        _s5.metric("⏳ Сессий ожидают",          len(_at9_pending))
+        _s5.metric("❓ Уроков не проставлено",    len(_at9_pending))
         _s6.metric("⏳ Преподавателей ждут",     len(_at9_teachers_pend))
         _s7.metric("🔴 Просрочено >2 дней",      len(_at9_urgent),
                    help=f"Преподавателей с просрочкой: {len(_at9_teachers_urg)}")
