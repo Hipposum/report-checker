@@ -3971,6 +3971,58 @@ with tab8:
                 },
             )
 
+        # ── Статистика по неделям ─────────────────────────────────────────────
+        with st.expander("📅 Динамика по неделям", expanded=False):
+            import pandas as _pd_at_w
+            # Группируем записи по ISO-неделе урока (поле date)
+            _at_week_map: dict = {}
+            for _wr in _at_ath:
+                try:
+                    _wd = datetime.strptime(_wr["date"], "%Y-%m-%d").date()
+                except Exception:
+                    continue
+                # Начало и конец недели
+                _wmon = _wd - timedelta(days=_wd.weekday())
+                _wsun = _wmon + timedelta(days=6)
+                _wkey = _wmon.isoformat()
+                if _wkey not in _at_week_map:
+                    _at_week_map[_wkey] = {
+                        "label": f"{_wmon.strftime('%d.%m')} – {_wsun.strftime('%d.%m.%Y')}",
+                        "records": [],
+                    }
+                _at_week_map[_wkey]["records"].append(_wr)
+
+            _at_week_rows = []
+            for _wkey in sorted(_at_week_map):
+                _wrecs = _at_week_map[_wkey]["records"]
+                _w_pend = [r for r in _wrecs if r.get("status") == "message_sent"]
+                _w_done = [r for r in _wrecs if r.get("status") == "handled"]
+                _w_urg  = [r for r in _w_pend if _at_days_overdue(r) > 2]
+                _at_week_rows.append({
+                    "Неделя":            _at_week_map[_wkey]["label"],
+                    "📨 Отправлено":     len(_wrecs),
+                    "⏳ Ожидает":        len(_w_pend),
+                    "🔴 Просрочено":     len(_w_urg),
+                    "✅ Проставили":     len(_w_done),
+                    "% выполнения":      round(len(_w_done) / len(_wrecs) * 100) if _wrecs else 0,
+                })
+
+            st.dataframe(
+                _pd_at_w.DataFrame(_at_week_rows),
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Неделя":        st.column_config.TextColumn(width="medium"),
+                    "📨 Отправлено": st.column_config.NumberColumn(width="small"),
+                    "⏳ Ожидает":    st.column_config.NumberColumn(width="small"),
+                    "🔴 Просрочено": st.column_config.NumberColumn(width="small"),
+                    "✅ Проставили": st.column_config.NumberColumn(width="small"),
+                    "% выполнения":  st.column_config.ProgressColumn(
+                        "% выполнения", format="%d%%", min_value=0, max_value=100
+                    ),
+                },
+            )
+
         st.divider()
 
         # ── Шаблон напоминания ────────────────────────────────────────────────
