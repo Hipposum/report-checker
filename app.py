@@ -3444,7 +3444,7 @@ with tab7:
                                 unsafe_allow_html=True,
                             )
                         with _btn_col:
-                            _flag_key = f"flag_{_rec['teacher']}_{_rec['date']}_{_rec['student']}_{_ri}"
+                            _flag_key = f"flag_{_rec['teacher']}_{_rec['date']}_{_subj}_{_rec['student']}_{_ri}"
                             if st.button("⚠️", key=_flag_key, help="Отметить как некорректный"):
                                 _flag_report_dialog(_rec)
 
