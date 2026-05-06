@@ -3855,9 +3855,10 @@ with tab9:
     if _at9_ref_col.button("🔄 Обновить", key="at9_refresh", use_container_width=True):
         st.rerun()
 
-    _at9_ath = load_attendance_history()
+    # Загружаем ВСЕ записи истории
+    _at9_ath_all = load_attendance_history()
 
-    if not _at9_ath:
+    if not _at9_ath_all:
         st.info("История пуста — отправьте сообщения о посещаемости для получения статистики.")
     else:
         _at9_today_d = date.today()
@@ -3868,58 +3869,72 @@ with tab9:
             except Exception:
                 return 0
 
-        _at9_pending        = [r for r in _at9_ath if r.get("status") == "message_sent"]
-        _at9_done           = [r for r in _at9_ath if r.get("status") == "handled"]
-        _at9_urgent         = [r for r in _at9_pending if _at9_days_overdue(r) > 2]
-        _at9_teachers_all   = sorted({r["teacher"] for r in _at9_ath})
-        _at9_teachers_pend  = {r["teacher"] for r in _at9_pending}
-        _at9_teachers_urg   = {r["teacher"] for r in _at9_urgent}
-        _at9_max_days       = max((_at9_days_overdue(r) for r in _at9_pending), default=0)
-        _at9_total_students = sum(r.get("count", 0) for r in _at9_ath)
-        _at9_pct_done       = round(len(_at9_done) / len(_at9_ath) * 100) if _at9_ath else 0
+        # ── Фильтр периода (влияет только на сводку и таблицы) ───────────────
+        _at9_all_dates = sorted({r["date"] for r in _at9_ath_all if r.get("date")})
+        _at9_min_d = datetime.strptime(_at9_all_dates[0], "%Y-%m-%d").date() if _at9_all_dates else _at9_today_d - timedelta(days=30)
+        _at9_max_d = datetime.strptime(_at9_all_dates[-1], "%Y-%m-%d").date() if _at9_all_dates else _at9_today_d
+        _at9_pf1, _at9_pf2 = st.columns(2)
+        _at9_period_from = _at9_pf1.date_input("Период с", value=_at9_min_d, key="at9_period_from")
+        _at9_period_to   = _at9_pf2.date_input("по",       value=_at9_max_d, key="at9_period_to")
+        _at9_pf_str = _at9_period_from.strftime("%Y-%m-%d")
+        _at9_pt_str = _at9_period_to.strftime("%Y-%m-%d")
 
-        # ── Сводные данные ────────────────────────────────────────────────────
+        # Данные за выбранный период — для сводки и статистических таблиц
+        _at9_ath     = [r for r in _at9_ath_all if _at9_pf_str <= r.get("date", "") <= _at9_pt_str]
+        _at9_pending = [r for r in _at9_ath if r.get("status") == "message_sent"]
+        _at9_done    = [r for r in _at9_ath if r.get("status") == "handled"]
+        _at9_urgent  = [r for r in _at9_pending if _at9_days_overdue(r) > 2]
+
+        # Все ожидающие (без ограничения периода) — для проверки и напоминаний
+        _at9_all_pending = [r for r in _at9_ath_all if r.get("status") == "message_sent"]
+
+        _at9_teachers_all  = sorted({r["teacher"] for r in _at9_ath})
+        _at9_teachers_pend = {r["teacher"] for r in _at9_pending}
+        _at9_teachers_urg  = {r["teacher"] for r in _at9_urgent}
+        _at9_max_days      = max((_at9_days_overdue(r) for r in _at9_pending), default=0)
+        _at9_total_stud    = sum(r.get("count", 0) for r in _at9_ath)
+        _at9_pct_done      = round(len(_at9_done) / len(_at9_ath) * 100) if _at9_ath else 0
+
+        # ── Сводные данные (за выбранный период) ─────────────────────────────
         st.markdown("#### 📋 Сводные данные")
         _s1, _s2, _s3, _s4 = st.columns(4)
-        _s1.metric("📚 Уроков с рассылкой",        len(_at9_ath))
+        _s1.metric("📚 Уроков с рассылкой",      len(_at9_ath))
         _s2.metric("👤 Преподавателей охвачено",  len(_at9_teachers_all))
-        _s3.metric("👥 Учеников вовлечено",       _at9_total_students)
+        _s3.metric("👥 Учеников вовлечено",       _at9_total_stud)
         _s4.metric("✅ Выполнено",                f"{_at9_pct_done}%",
                    help=f"{len(_at9_done)} из {len(_at9_ath)} уроков проставлено")
 
         _s5, _s6, _s7, _s8 = st.columns(4)
         _s5.metric("❓ Уроков не проставлено",    len(_at9_pending))
-        _s6.metric("⏳ Преподавателей ждут",     len(_at9_teachers_pend))
-        _s7.metric("🔴 Просрочено >2 дней",      len(_at9_urgent),
+        _s6.metric("⏳ Преподавателей ждут",      len(_at9_teachers_pend))
+        _s7.metric("🔴 Просрочено >2 дней",       len(_at9_urgent),
                    help=f"Преподавателей с просрочкой: {len(_at9_teachers_urg)}")
-        _s8.metric("📅 Макс. дней без ответа",   _at9_max_days)
+        _s8.metric("📅 Макс. дней без ответа",    _at9_max_days)
 
         st.divider()
 
         # ── Проверить кто проставил ───────────────────────────────────────────
+        # Дата берётся автоматически из всех ожидающих записей (не из фильтра периода)
         st.markdown("#### 🔄 Проверить кто проставил посещаемость")
-        st.caption("Загружает актуальные данные HolliHop и обновляет статусы в истории.")
-        _at9_c1, _at9_c2, _at9_c3 = st.columns([1.5, 1.5, 2])
-        _at9_chk_from = _at9_c1.date_input(
-            "С", value=st.session_state.get("at_date_from", _at9_today_d - timedelta(days=7)),
-            key="at9_chk_from",
+        _at9_pend_dates_all = sorted({r["date"] for r in _at9_all_pending})
+        _at9_auto_from = (datetime.strptime(_at9_pend_dates_all[0], "%Y-%m-%d").date()
+                          if _at9_pend_dates_all else _at9_today_d - timedelta(days=30))
+        _at9_auto_to   = (datetime.strptime(_at9_pend_dates_all[-1], "%Y-%m-%d").date()
+                          if _at9_pend_dates_all else _at9_today_d)
+        st.caption(
+            f"Период проверки: **{_at9_auto_from.strftime('%d.%m.%Y')} — {_at9_auto_to.strftime('%d.%m.%Y')}** "
+            f"(автоматически по всем ожидающим записям)"
         )
-        _at9_chk_to = _at9_c2.date_input(
-            "По", value=st.session_state.get("at_date_to", _at9_today_d),
-            key="at9_chk_to",
-        )
-        _at9_c3.markdown('<div style="height:1.75rem"></div>', unsafe_allow_html=True)
-        _at9_check_btn = _at9_c3.button(
+        _at9_check_btn = st.button(
             "🔄 Проверить кто проставил",
             key="at_check_handled",
             type="primary",
-            use_container_width=True,
         )
 
         if _at9_check_btn:
-            _at9_ff = _at9_chk_from.strftime("%Y-%m-%d")
-            _at9_ft = _at9_chk_to.strftime("%Y-%m-%d")
-            with st.spinner("Загружаю данные посещаемости…"):
+            _at9_ff = _at9_auto_from.strftime("%Y-%m-%d")
+            _at9_ft = _at9_auto_to.strftime("%Y-%m-%d")
+            with st.spinner(f"Загружаю данные HolliHop за {_at9_auto_from.strftime('%d.%m')}–{_at9_auto_to.strftime('%d.%m.%Y')}…"):
                 _at9_chk_eus = api_paginated(BASE_URL, api_key, "GetEdUnitStudents", "EdUnitStudents", params={
                     "dateFrom": _at9_ff, "dateTo": _at9_ft, "queryDays": "true",
                 })
@@ -3938,10 +3953,10 @@ with tab9:
             for _at9_chr in _at9_chk_hist:
                 if _at9_chr.get("status") not in ("message_sent", "open"):
                     continue
-                _at9_cdate  = _at9_chr.get("date", "")
-                _at9_cstus  = _at9_chr.get("students", [])
-                _at9_ok     = [s for s in _at9_cstus if (s, _at9_cdate) in _at9_accepted_pairs]
-                _at9_miss   = [s for s in _at9_cstus if (s, _at9_cdate) not in _at9_accepted_pairs]
+                _at9_cdate = _at9_chr.get("date", "")
+                _at9_cstus = _at9_chr.get("students", [])
+                _at9_ok    = [s for s in _at9_cstus if (s, _at9_cdate) in _at9_accepted_pairs]
+                _at9_miss  = [s for s in _at9_cstus if (s, _at9_cdate) not in _at9_accepted_pairs]
                 try:
                     _at9_cdfmt = datetime.strptime(_at9_cdate, "%Y-%m-%d").strftime("%d.%m.%Y")
                 except Exception:
@@ -3975,16 +3990,13 @@ with tab9:
                 import pandas as _pd9_chk
                 st.dataframe(_pd9_chk.DataFrame(_at9_chk_rows), use_container_width=True, hide_index=True)
             elif not _at9_handled_n and not _at9_pending_n:
-                st.info("В истории посещаемости нет записей со статусом «ожидает».")
-            # Перезагружаем после проверки
-            _at9_ath     = load_attendance_history()
-            _at9_pending = [r for r in _at9_ath if r.get("status") == "message_sent"]
-            _at9_done    = [r for r in _at9_ath if r.get("status") == "handled"]
-            _at9_urgent  = [r for r in _at9_pending if _at9_days_overdue(r) > 2]
+                st.info("Нет ожидающих записей для проверки.")
+            # Обновляем страницу — метрики и таблицы покажут свежие данные
+            st.rerun()
 
         st.divider()
 
-        # ── Статистика по преподавателям ──────────────────────────────────────
+        # ── Статистика по преподавателям (за период) ─────────────────────────
         with st.expander("📊 Статистика по преподавателям", expanded=True):
             import pandas as _pd9_t
             _at9_stat_rows = []
@@ -4022,7 +4034,7 @@ with tab9:
                 },
             )
 
-        # ── Динамика по неделям ───────────────────────────────────────────────
+        # ── Динамика по неделям (за период) ──────────────────────────────────
         with st.expander("📅 Динамика по неделям", expanded=True):
             import pandas as _pd9_w
             _at9_week_map: dict = {}
@@ -4073,7 +4085,7 @@ with tab9:
 
         st.divider()
 
-        # ── Шаблон напоминания + рассылка ────────────────────────────────────
+        # ── Шаблон напоминания + рассылка (все ожидающие, без фильтра периода)
         _at9_sender = cfg.get("reviewer_name", "Артём")
         _at9_tpl_default = (
             "Привет, {first_name}! Всё ещё жду проставления посещаемости за {dates} 🙏\n\n"
@@ -4090,7 +4102,8 @@ with tab9:
             )
         _at9_reminder_tpl = st.session_state.get("at_reminder_tpl", _at9_tpl_default)
 
-        _at9_pend_teachers = sorted({r["teacher"] for r in _at9_pending})
+        # Напоминаем по всем ожидающим (не только за период)
+        _at9_pend_teachers = sorted({r["teacher"] for r in _at9_all_pending})
         if _at9_pend_teachers and pachca_token:
             if st.button(
                 f"📨 Отправить напоминание всем ожидающим ({len(_at9_pend_teachers)} чел.)",
@@ -4102,7 +4115,7 @@ with tab9:
                     _at9_rem.load_users()
                 _at9_sent, _at9_fail = [], []
                 for _at9_rt in _at9_pend_teachers:
-                    _at9_rt_dates = sorted({r["date"] for r in _at9_pending if r["teacher"] == _at9_rt})
+                    _at9_rt_dates = sorted({r["date"] for r in _at9_all_pending if r["teacher"] == _at9_rt})
                     _at9_rt_dfmt  = ", ".join(
                         datetime.strptime(d, "%Y-%m-%d").strftime("%d.%m") for d in _at9_rt_dates
                     )
@@ -4129,21 +4142,22 @@ with tab9:
 
         st.divider()
 
-        # ── История: фильтр + карточки преподавателей ────────────────────────
+        # ── История: только непроставленные по умолчанию ─────────────────────
         st.markdown("#### 📋 История отправленных сообщений")
+        # Только ожидающие (из _at9_all_pending) — обработанные здесь не нужны
+        _at9_hist_show_done = st.checkbox("Показать также проставленных", value=False, key="at9_show_done")
+        _at9_urgent_all = [r for r in _at9_all_pending if _at9_days_overdue(r) > 2]
         _at9_status_filter = st.selectbox(
-            "Фильтр по статусу",
-            ["Все", "⏳ Ожидает", "🔴 Просрочено >2 дней", "✅ Проставлено"],
+            "Фильтр",
+            ["⏳ Ожидает", "🔴 Просрочено >2 дней"] + (["✅ Проставлено"] if _at9_hist_show_done else []),
             key="at_hist_status_filter",
         )
-        if _at9_status_filter == "⏳ Ожидает":
-            _at9_filtered = _at9_pending
-        elif _at9_status_filter == "🔴 Просрочено >2 дней":
-            _at9_filtered = _at9_urgent
+        if _at9_status_filter == "🔴 Просрочено >2 дней":
+            _at9_filtered = _at9_urgent_all
         elif _at9_status_filter == "✅ Проставлено":
-            _at9_filtered = _at9_done
+            _at9_filtered = [r for r in _at9_ath_all if r.get("status") == "handled"]
         else:
-            _at9_filtered = _at9_ath
+            _at9_filtered = _at9_all_pending
 
         _at9_by_t: dict = defaultdict(list)
         for _at9_r in _at9_filtered:
