@@ -3921,14 +3921,55 @@ with tab9:
                           if _at9_pend_dates_all else _at9_today_d - timedelta(days=30))
         _at9_auto_to   = (datetime.strptime(_at9_pend_dates_all[-1], "%Y-%m-%d").date()
                           if _at9_pend_dates_all else _at9_today_d)
-        st.caption(
-            f"Период проверки: **{_at9_auto_from.strftime('%d.%m.%Y')} — {_at9_auto_to.strftime('%d.%m.%Y')}** "
-            f"(автоматически по всем ожидающим записям)"
-        )
+
+        if _at9_all_pending:
+            st.caption(
+                f"Период проверки: **{_at9_auto_from.strftime('%d.%m.%Y')} — {_at9_auto_to.strftime('%d.%m.%Y')}** "
+                f"· {len(_at9_all_pending)} записей ожидают"
+            )
+        else:
+            st.caption("Нет ожидающих записей — все уже проставлены или записей нет.")
+
+        # Диагностика: недавно закрытые записи (могли быть закрыты ошибочно)
+        _at9_recent_handled = [
+            r for r in _at9_ath_all
+            if r.get("status") == "handled" and r.get("checked_at", "")
+            and r["checked_at"] >= (datetime.now() - timedelta(days=7)).isoformat(timespec="seconds")
+        ]
+        if _at9_recent_handled:
+            with st.expander(f"🔍 Недавно закрытых записей: {len(_at9_recent_handled)} (за 7 дней)", expanded=False):
+                st.caption("Если видишь здесь даты, которые не должны быть закрыты — нажми «Вернуть в ожидание»")
+                import pandas as _pd9_diag
+                _at9_diag_rows = []
+                for _r in sorted(_at9_recent_handled, key=lambda r: r.get("date",""), reverse=True):
+                    try: _dfmt = datetime.strptime(_r["date"], "%Y-%m-%d").strftime("%d.%m.%Y")
+                    except: _dfmt = _r.get("date", "")
+                    _at9_diag_rows.append({
+                        "Преподаватель": _r.get("teacher", ""),
+                        "Дата":          _dfmt,
+                        "Учеников":      _r.get("count", len(_r.get("students", []))),
+                        "Список":        ", ".join(_r.get("students", [])) or "—",
+                        "Закрыто":       (_r.get("checked_at") or "")[:10],
+                    })
+                st.dataframe(_pd9_diag.DataFrame(_at9_diag_rows), use_container_width=True, hide_index=True)
+                if st.button("↩️ Вернуть все в «Ожидание»", key="at9_reopen_handled"):
+                    _at9_reopen_hist = load_attendance_history()
+                    _at9_reopen_ids  = {r.get("id") for r in _at9_recent_handled}
+                    _at9_reopened_n  = 0
+                    for _rx in _at9_reopen_hist:
+                        if _rx.get("id") in _at9_reopen_ids:
+                            _rx["status"]     = "message_sent"
+                            _rx["checked_at"] = None
+                            _at9_reopened_n += 1
+                    save_attendance_history(_at9_reopen_hist)
+                    st.success(f"↩️ {_at9_reopened_n} записей возвращено в статус «Ожидает»")
+                    st.rerun()
+
         _at9_check_btn = st.button(
             "🔄 Проверить кто проставил",
             key="at_check_handled",
             type="primary",
+            disabled=not _at9_all_pending,
         )
 
         if _at9_check_btn:
@@ -3948,19 +3989,26 @@ with tab9:
 
             _at9_chk_hist = load_attendance_history()
             _at9_chk_now  = datetime.now().isoformat(timespec="seconds")
-            _at9_handled_n, _at9_pending_n = 0, 0
+            _at9_handled_n, _at9_pending_n, _at9_skipped_n = 0, 0, 0
             _at9_chk_rows = []
             for _at9_chr in _at9_chk_hist:
                 if _at9_chr.get("status") not in ("message_sent", "open"):
                     continue
                 _at9_cdate = _at9_chr.get("date", "")
                 _at9_cstus = _at9_chr.get("students", [])
-                _at9_ok    = [s for s in _at9_cstus if (s, _at9_cdate) in _at9_accepted_pairs]
-                _at9_miss  = [s for s in _at9_cstus if (s, _at9_cdate) not in _at9_accepted_pairs]
                 try:
                     _at9_cdfmt = datetime.strptime(_at9_cdate, "%Y-%m-%d").strftime("%d.%m.%Y")
                 except Exception:
                     _at9_cdfmt = _at9_cdate
+
+                # Если список учеников пустой — пропускаем: нельзя подтвердить без данных
+                if not _at9_cstus:
+                    _at9_skipped_n += 1
+                    continue
+
+                _at9_ok    = [s for s in _at9_cstus if (s, _at9_cdate) in _at9_accepted_pairs]
+                _at9_miss  = [s for s in _at9_cstus if (s, _at9_cdate) not in _at9_accepted_pairs]
+
                 if _at9_miss:
                     _at9_pending_n += 1
                     _at9_chk_rows.append({
@@ -3971,13 +4019,14 @@ with tab9:
                         "Статус":         "⏳ Ожидает",
                     })
                 else:
+                    # Все ученики проставлены — закрываем запись
                     _at9_chr["status"]     = "handled"
                     _at9_chr["checked_at"] = _at9_chk_now
                     _at9_handled_n += 1
                     _at9_chk_rows.append({
                         "Преподаватель":  _at9_chr.get("teacher", ""),
                         "Дата":           _at9_cdfmt,
-                        "Проставили":     ", ".join(_at9_ok) if _at9_ok else "—",
+                        "Проставили":     ", ".join(_at9_ok),
                         "Не проставили":  "—",
                         "Статус":         "✅ Готово",
                     })
@@ -3986,6 +4035,8 @@ with tab9:
                 st.success(f"✅ Проставлено у {_at9_handled_n} записей → статус «Проставлено»")
             if _at9_pending_n:
                 st.warning(f"⏳ Ещё ожидают: {_at9_pending_n} записей")
+            if _at9_skipped_n:
+                st.info(f"⚠️ Пропущено {_at9_skipped_n} записей с пустым списком учеников (не закрываем автоматически)")
             if _at9_chk_rows:
                 import pandas as _pd9_chk
                 st.dataframe(_pd9_chk.DataFrame(_at9_chk_rows), use_container_width=True, hide_index=True)
