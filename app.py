@@ -3930,10 +3930,7 @@ with tab9:
         _at9_chk_to_s   = _at9_chk_to.strftime("%Y-%m-%d")
 
         # Записи, попадающие в выбранный период (любой статус)
-        _at9_in_range = [
-            r for r in _at9_ath_all
-            if _at9_chk_from_s <= r.get("date", "") <= _at9_chk_to_s
-        ]
+        _at9_in_range         = [r for r in _at9_ath_all if _at9_chk_from_s <= r.get("date", "") <= _at9_chk_to_s]
         _at9_pending_in_range = [r for r in _at9_in_range if r.get("status") == "message_sent"]
         _at9_handled_in_range = [r for r in _at9_in_range if r.get("status") == "handled"]
 
@@ -3942,65 +3939,70 @@ with tab9:
             f"**{len(_at9_handled_in_range)}** уже закрыто"
         )
 
-        _at9_bca, _at9_bcb = st.columns(2)
-
-        # Кнопка 1: Автопроверка через HolliHop
-        _at9_check_btn = _at9_bca.button(
+        _at9_check_btn = st.button(
             "🔄 Проверить по HolliHop",
             key="at_check_handled",
             type="primary",
-            use_container_width=True,
             disabled=not _at9_pending_in_range,
         )
-        # Кнопка 2: Закрыть вручную (когда чек через API не работает)
-        _at9_manual_btn = _at9_bcb.button(
-            f"✅ Закрыть вручную ({len(_at9_pending_in_range)})",
-            key="at9_manual_close",
-            use_container_width=True,
-            disabled=not _at9_pending_in_range,
-            help="Закрывает все ожидающие записи в периоде без запроса к HolliHop",
-        )
-
-        if _at9_manual_btn:
-            _at9_mc_hist = load_attendance_history()
-            _at9_mc_ids  = {r.get("id") for r in _at9_pending_in_range}
-            _at9_mc_now  = datetime.now().isoformat(timespec="seconds")
-            _at9_mc_n    = 0
-            for _mx in _at9_mc_hist:
-                if _mx.get("id") in _at9_mc_ids:
-                    _mx["status"]     = "handled"
-                    _mx["checked_at"] = _at9_mc_now
-                    _at9_mc_n += 1
-            save_attendance_history(_at9_mc_hist)
-            st.success(f"✅ Закрыто вручную: {_at9_mc_n} записей")
-            st.rerun()
 
         if _at9_check_btn:
-            with st.spinner(f"Загружаю данные HolliHop за {_at9_chk_from.strftime('%d.%m')}–{_at9_chk_to.strftime('%d.%m.%Y')}…"):
+            # Та же логика что в tab8: студент НЕ проставлен только когда
+            # Accepted=false AND Pass!=true AND нет отчёта по EdUnit+Date
+            with st.spinner(f"Загружаю данные за {_at9_chk_from.strftime('%d.%m')}–{_at9_chk_to.strftime('%d.%m.%Y')}…"):
+                # 1. EdUnits → карта teacher→edunit_ids
+                _at9_ed_units = api_paginated(BASE_URL, api_key, "GetEdUnits", "EdUnits", params={
+                    "types": "Group,MiniGroup,Individual",
+                    "dateFrom": _at9_chk_from_s, "dateTo": _at9_chk_to_s,
+                })
+                _at9_eu_teachers: dict = {}  # eu_id → [teacher, ...]
+                for _at9_eu in _at9_ed_units:
+                    _at9_eu_id2 = _at9_eu.get("Id")
+                    _at9_tnames = [
+                        t for si in _at9_eu.get("ScheduleItems", [])
+                        for t in si.get("Teachers", [])
+                    ]
+                    _at9_eu_teachers[_at9_eu_id2] = _at9_tnames
+
+                # 2. Отчёты → {(eu_id, date)} где урок состоялся
+                _at9_test_res = load_test_results(BASE_URL, api_key, _at9_chk_from_s, _at9_chk_to_s)
+                _at9_lesson_happened: set = {
+                    (r.get("EdUnitId"), (r.get("Date") or "")[:10])
+                    for r in _at9_test_res
+                }
+
+                # 3. Студенты с их днями
                 _at9_chk_eus = api_paginated(BASE_URL, api_key, "GetEdUnitStudents", "EdUnitStudents", params={
                     "dateFrom": _at9_chk_from_s, "dateTo": _at9_chk_to_s, "queryDays": "true",
                 })
 
-            # Строим множество принятых учеников + даты
-            _at9_accepted_pairs: set = set()   # (student_name, date)
-            _at9_accepted_dates: set = set()   # dates where ANY accepted entry exists
+            # Строим множество (student_name_lower, date) которые ВСЁЁ ЕЩЁ не проставлены
+            # Логика идентична tab8: unset = Accepted=false AND Pass!=true AND нет отчёта
+            _at9_still_unset: set = set()   # (name_lower, date)
             for _at9_cr in _at9_chk_eus:
-                _at9_csname = (_at9_cr.get("StudentName") or "").strip()
+                _at9_eu_id2 = _at9_cr.get("EdUnitId") or _at9_cr.get("Id")
+                _at9_csname = (_at9_cr.get("StudentName") or _at9_cr.get("ClientName") or "").strip().lower()
                 for _at9_cd in _at9_cr.get("Days", []):
+                    _at9_cdate = (_at9_cd.get("Date") or "")[:10]
+                    if not _at9_cdate:
+                        continue
                     if _at9_cd.get("Accepted"):
-                        _at9_cdate = (_at9_cd.get("Date") or "")[:10]
-                        _at9_accepted_pairs.add((_at9_csname, _at9_cdate))
-                        _at9_accepted_dates.add(_at9_cdate)
+                        continue  # подтверждено
+                    if _at9_cd.get("Pass") is True:
+                        continue  # пропуск выставлен
+                    if (_at9_eu_id2, _at9_cdate) in _at9_lesson_happened:
+                        continue  # отчёт есть → урок состоялся
+                    # Всё ещё не проставлено
+                    _at9_still_unset.add((_at9_csname, _at9_cdate))
 
             _at9_chk_hist = load_attendance_history()
             _at9_chk_now  = datetime.now().isoformat(timespec="seconds")
-            _at9_handled_n, _at9_pending_n, _at9_skipped_n = 0, 0, 0
+            _at9_handled_n, _at9_pending_n = 0, 0
             _at9_chk_rows = []
             for _at9_chr in _at9_chk_hist:
                 if _at9_chr.get("status") not in ("message_sent", "open"):
                     continue
                 _at9_cdate = _at9_chr.get("date", "")
-                # Только записи в выбранном периоде
                 if not (_at9_chk_from_s <= _at9_cdate <= _at9_chk_to_s):
                     continue
                 _at9_cstus = [s.strip() for s in _at9_chr.get("students", []) if s and s.strip()]
@@ -4009,40 +4011,23 @@ with tab9:
                 except Exception:
                     _at9_cdfmt = _at9_cdate
 
-                # Нет учеников — не можем проверить, закрываем если дата вообще принята в HolliHop
-                if not _at9_cstus:
-                    if _at9_cdate in _at9_accepted_dates:
-                        _at9_chr["status"]     = "handled"
-                        _at9_chr["checked_at"] = _at9_chk_now
-                        _at9_handled_n += 1
-                        _at9_chk_rows.append({
-                            "Преподаватель": _at9_chr.get("teacher", ""),
-                            "Дата":          _at9_cdfmt,
-                            "Проставили":    "✅ (список пуст, дата принята)",
-                            "Не проставили": "—",
-                            "Статус":        "✅ Готово",
-                        })
-                    else:
-                        _at9_skipped_n += 1
-                    continue
+                # Проверяем: кто из сохранённых учеников всё ещё не проставил
+                _at9_miss = [s for s in _at9_cstus if (s.lower(), _at9_cdate) in _at9_still_unset]
+                _at9_ok   = [s for s in _at9_cstus if (s.lower(), _at9_cdate) not in _at9_still_unset]
 
-                # Сопоставляем по имени: точно + нормализованно
-                _at9_ok, _at9_miss = [], []
-                for _sn in _at9_cstus:
-                    _sn_norm = _sn.strip().lower()
-                    _matched = (
-                        (_sn, _at9_cdate) in _at9_accepted_pairs
-                        or any(
-                            _sn_norm == _ap.strip().lower()
-                            for (_ap, _ad) in _at9_accepted_pairs if _ad == _at9_cdate
-                        )
-                    )
-                    if _matched:
-                        _at9_ok.append(_sn)
-                    else:
-                        _at9_miss.append(_sn)
-
-                if _at9_miss:
+                # Если список пуст → закрываем (нет никого кто не проставил)
+                if not _at9_cstus or not _at9_miss:
+                    _at9_chr["status"]     = "handled"
+                    _at9_chr["checked_at"] = _at9_chk_now
+                    _at9_handled_n += 1
+                    _at9_chk_rows.append({
+                        "Преподаватель":  _at9_chr.get("teacher", ""),
+                        "Дата":           _at9_cdfmt,
+                        "Проставили":     ", ".join(_at9_ok) if _at9_ok else "✅ все",
+                        "Не проставили":  "—",
+                        "Статус":         "✅ Готово",
+                    })
+                else:
                     _at9_pending_n += 1
                     _at9_chk_rows.append({
                         "Преподаватель":  _at9_chr.get("teacher", ""),
@@ -4051,33 +4036,20 @@ with tab9:
                         "Не проставили":  ", ".join(_at9_miss),
                         "Статус":         "⏳ Ожидает",
                     })
-                else:
-                    _at9_chr["status"]     = "handled"
-                    _at9_chr["checked_at"] = _at9_chk_now
-                    _at9_handled_n += 1
-                    _at9_chk_rows.append({
-                        "Преподаватель":  _at9_chr.get("teacher", ""),
-                        "Дата":           _at9_cdfmt,
-                        "Проставили":     ", ".join(_at9_ok),
-                        "Не проставили":  "—",
-                        "Статус":         "✅ Готово",
-                    })
 
             save_attendance_history(_at9_chk_hist)
             if _at9_handled_n:
-                st.success(f"✅ Проставлено: {_at9_handled_n} записей закрыто")
+                st.success(f"✅ Закрыто: {_at9_handled_n} записей")
             if _at9_pending_n:
                 st.warning(f"⏳ Ещё ожидают: {_at9_pending_n} записей")
-            if _at9_skipped_n:
-                st.info(f"ℹ️ Пропущено {_at9_skipped_n} записей: список учеников пуст и дата не найдена в HolliHop")
-            if not _at9_handled_n and not _at9_pending_n and not _at9_skipped_n:
+            if not _at9_handled_n and not _at9_pending_n:
                 st.info("Нет ожидающих записей в этом периоде.")
             if _at9_chk_rows:
                 import pandas as _pd9_chk
                 st.dataframe(_pd9_chk.DataFrame(_at9_chk_rows), use_container_width=True, hide_index=True)
             st.rerun()
 
-        # Показываем ожидающие в периоде (без запроса к API)
+        # Показываем ожидающие в периоде
         if _at9_pending_in_range:
             with st.expander(f"📋 Ожидающие в периоде ({len(_at9_pending_in_range)})", expanded=False):
                 import pandas as _pd9_pr
